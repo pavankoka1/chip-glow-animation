@@ -130,9 +130,34 @@ const FRAGMENT_SHADER = `
     float pathLength = getPathLength(pathType);
     float segmentParamLength = segmentLength / pathLength;
     
-    // Segment spans from phase to phase + segmentParamLength
-    float segmentStartPhase = phase;
-    float segmentEndPhase = phase + segmentParamLength;
+    // For ellipse paths, we want the head (front) to start at the major axis vertex
+    // So we offset backwards: head at phase, tail at phase - segmentParamLength
+    // For other paths, keep the original behavior (tail at phase, head at phase + segmentParamLength)
+    float originalStartPhase;
+    float originalEndPhase;
+    float segmentStartPhase;
+    float segmentEndPhase;
+    
+    if (pathType < 1.5) {
+      // Ellipse paths: head starts at phase, tail is behind
+      originalEndPhase = phase;  // Head position
+      originalStartPhase = phase - segmentParamLength;  // Tail position (behind head)
+      
+      // For ellipse paths, when phase > 1.0, keep head at end (t=1.0) and move tail forward
+      if (phase > 1.0) {
+        segmentEndPhase = 1.0;  // Head stays at end of path
+        segmentStartPhase = phase - segmentParamLength;  // Tail continues forward
+      } else {
+        segmentEndPhase = phase;
+        segmentStartPhase = phase - segmentParamLength;
+      }
+    } else {
+      // Horizontal and vertical paths: tail at phase, head ahead
+      originalStartPhase = phase;
+      originalEndPhase = phase + segmentParamLength;
+      segmentStartPhase = phase;
+      segmentEndPhase = phase + segmentParamLength;
+    }
     
     // Clamp to [0, 1] - no wrapping, just a segment that travels
     segmentStartPhase = clamp(segmentStartPhase, 0.0, 1.0);
@@ -155,12 +180,14 @@ const FRAGMENT_SHADER = `
       }
     }
     
-    // Calculate position along the segment (0 = start, 1 = end)
-    float phaseRange = segmentEndPhase - segmentStartPhase;
+    // Calculate position along the segment (0 = tail, 1 = head)
+    // Use the actual visible segment range for alongLine calculation
+    float visibleRange = segmentEndPhase - segmentStartPhase;
     float alongLine = 0.5;
-    if (phaseRange > 0.001) {
-      alongLine = (closestT - segmentStartPhase) / phaseRange;
+    if (abs(visibleRange) > 0.001) {
+      alongLine = (closestT - segmentStartPhase) / visibleRange;
     }
+    // Clamp alongLine to [0, 1]
     alongLine = clamp(alongLine, 0.0, 1.0);
     
     return vec3(minDist, closestT, alongLine);
@@ -176,18 +203,35 @@ const FRAGMENT_SHADER = `
       return;
     }
     
-    // Animation phase (0 to 1, single pass - no looping)
-    // Phase completes when adjustedTime * u_speed >= 1.0
-    float phase = clamp(adjustedTime * u_speed, 0.0, 1.0);
+    // Calculate raw phase (can go beyond 1.0 for ellipse paths)
+    float rawPhase = adjustedTime * u_speed;
+    
+    // Calculate path length and segment parameter length for completion check
+    float lineLength = u_lineLength;
+    float pathLength = getPathLength(u_pathType);
+    float segmentParamLength = lineLength / pathLength;
+    
+    // For ellipse paths, animation completes when tail reaches the end
+    // Tail is at (phase - segmentParamLength), so it completes when: phase - segmentParamLength >= 1.0
+    // Which means: phase >= 1.0 + segmentParamLength
+    // For other paths, animation completes when head reaches the end: phase >= 1.0
+    float maxPhase;
+    if (u_pathType < 1.5) {
+      // Ellipse paths: continue until tail completes (phase can go beyond 1.0)
+      maxPhase = 1.0 + segmentParamLength;
+    } else {
+      // Horizontal and vertical paths: complete when head reaches end
+      maxPhase = 1.0;
+    }
+    
+    // Clamp phase to valid range [0, maxPhase]
+    float phase = clamp(rawPhase, 0.0, maxPhase);
     
     // If animation is complete, don't render
-    if (phase >= 1.0) {
+    if (rawPhase >= maxPhase) {
       gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
       return;
     }
-    
-    // Line length - configurable length of the line segment formed by circles
-    float lineLength = u_lineLength;
     
     // Find closest point on path segment
     vec3 closestInfo = findClosestPointOnPath(pixelPos, phase, lineLength, u_pathType);
@@ -401,13 +445,45 @@ export default function GlowAnimation({
 
       // Check if all animations are complete
       let allComplete = true;
+      const length = config.length || 200.0;
+
       programsRef.current.forEach((prog) => {
         const pathSpeed = prog.path.speed || config.speed || 2.0;
         const pathDelay = prog.path.delay || 0;
         const adjustedTime = currentTime - pathDelay;
         if (adjustedTime >= 0) {
-          const phase = Math.min(adjustedTime * pathSpeed, 1.0);
-          if (phase < 1.0) {
+          const rawPhase = adjustedTime * pathSpeed;
+          const pathType = PATH_TYPE_MAP[prog.path.type] || 0;
+
+          // Calculate path length for this path type
+          const betspotSize = 200.0;
+          const halfSize = betspotSize * 0.5;
+          const pathOffset = 5.0;
+          let pathLength;
+
+          if (pathType < 1.5) {
+            // Diagonal paths (ellipse) - approximate ellipse perimeter
+            const diagonalDist = halfSize * 1.414213562;
+            const semiMajor = diagonalDist + pathOffset;
+            const semiMinor = 5.0;
+            pathLength =
+              Math.PI *
+              Math.sqrt(2.0 * (semiMajor * semiMajor + semiMinor * semiMinor));
+          } else if (pathType < 2.5) {
+            // Horizontal - full circle circumference
+            pathLength = 2.0 * Math.PI * (halfSize + pathOffset);
+          } else {
+            // Vertical - full circle circumference
+            pathLength = 2.0 * Math.PI * (halfSize + pathOffset);
+          }
+
+          const segmentParamLength = length / pathLength;
+
+          // For ellipse paths, complete when tail reaches end: rawPhase >= 1.0 + segmentParamLength
+          // For other paths, complete when head reaches end: rawPhase >= 1.0
+          const maxPhase = pathType < 1.5 ? 1.0 + segmentParamLength : 1.0;
+
+          if (rawPhase < maxPhase) {
             allComplete = false;
           }
         } else {
@@ -427,7 +503,7 @@ export default function GlowAnimation({
 
       gl.clear(gl.COLOR_BUFFER_BIT);
 
-      const cameraDistance = 10000.0;
+      const cameraDistance = 4000.0;
       const lineLength = config.length || 200.0;
 
       // Draw each path

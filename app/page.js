@@ -14,24 +14,24 @@ export default function Home() {
   const [configOpen, setConfigOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [config, setConfig] = useState({
-    speed: 2.0,
+    speed: 1.0,
     glow: 3.0,
     centerRadius: 2.0,
-    length: 200.0,
+    length: 300.0,
     paths: [
       {
         id: 1,
         type: "diagonal-tr-bl",
-        speed: 0.2,
+        // speed: 2,
         delay: 0,
-        glow: 10.0,
+        glow: 100.0,
         centerRadius: 12.0,
         enabled: true,
       },
       // {
       //   id: 2,
       //   type: "diagonal-bl-tr",
-      //   speed: 4.0,
+      //   // speed: 2.0,
       //   delay: 0.3,
       //   glow: 10.0,
       //   centerRadius: 12.0,
