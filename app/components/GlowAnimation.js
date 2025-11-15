@@ -6,7 +6,6 @@ const VERTEX_SHADER = `
   precision mediump float;
   attribute vec2 a_position;
   uniform vec2 u_resolution;
-  uniform mediump float u_cameraDistance;
   varying vec2 v_position;
 
   void main() {
@@ -18,8 +17,8 @@ const VERTEX_SHADER = `
   }
 `;
 
-// Generate fragment shader with path type support
-const generateFragmentShader = () => `
+// Fragment shader with path type support
+const FRAGMENT_SHADER = `
   precision mediump float;
   uniform vec2 u_resolution;
   uniform vec2 u_center;
@@ -30,6 +29,7 @@ const generateFragmentShader = () => `
   uniform mediump float u_centerRadius;
   uniform mediump float u_cameraDistance;
   uniform mediump float u_pathType;
+  uniform mediump float u_lineLength;
   varying vec2 v_position;
 
   // Project 3D point to 2D screen space with perspective
@@ -39,11 +39,12 @@ const generateFragmentShader = () => `
   }
 
   // Calculate position on path based on type
-  // t: can be any value (will be wrapped to 0-1 for continuous animation)
+  // t: parameter from 0 to 1
   // pathType: 0=diagonal-tl-br, 1=diagonal-tr-bl, 2=horizontal, 3=vertical
   vec3 getPathPosition(float t, float pathType) {
-    // Wrap t to [0, 1] for continuous looping
-    t = mod(t, 1.0);
+    // Clamp t to [0, 1] - no looping, single pass
+    t = clamp(t, 0.0, 1.0);
+    // Fixed path size (betspot size)
     float betspotSize = 200.0;
     float halfSize = betspotSize * 0.5;
     float pathOffset = 5.0; // 5px away from betspot edge
@@ -101,6 +102,7 @@ const generateFragmentShader = () => `
   // Calculate approximate path length for a given path type
   // This is used to convert pixel length to parameter length
   float getPathLength(float pathType) {
+    // Fixed path size (betspot size)
     float betspotSize = 200.0;
     float halfSize = betspotSize * 0.5;
     float pathOffset = 5.0;
@@ -174,12 +176,18 @@ const generateFragmentShader = () => `
       return;
     }
     
-    // Animation phase (0 to 1, loops infinitely)
-    float phase = mod(adjustedTime * u_speed, 1.0);
+    // Animation phase (0 to 1, single pass - no looping)
+    // Phase completes when adjustedTime * u_speed >= 1.0
+    float phase = clamp(adjustedTime * u_speed, 0.0, 1.0);
     
-    // Line length - exactly side length of BetSpot square (200px)
-    float betspotSize = 200.0;
-    float lineLength = betspotSize;
+    // If animation is complete, don't render
+    if (phase >= 1.0) {
+      gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+      return;
+    }
+    
+    // Line length - configurable length of the line segment formed by circles
+    float lineLength = u_lineLength;
     
     // Find closest point on path segment
     vec3 closestInfo = findClosestPointOnPath(pixelPos, phase, lineLength, u_pathType);
@@ -259,10 +267,16 @@ const PATH_TYPE_MAP = {
   vertical: 3,
 };
 
-export default function GlowAnimation({ anchorEl, config = {} }) {
+export default function GlowAnimation({
+  anchorEl,
+  config = {},
+  isPlaying = false,
+  onAnimationComplete,
+}) {
   const canvasRef = useRef(null);
   const startTimeRef = useRef(null);
   const programsRef = useRef([]);
+  const animationIdRef = useRef(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -298,10 +312,6 @@ export default function GlowAnimation({ anchorEl, config = {} }) {
 
     const activePaths = paths.length > 0 ? paths : [defaultPath];
 
-    // Create shaders and programs for each path
-    const vertexShader = createShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
-    const fragmentShaderSource = generateFragmentShader();
-
     // Clean up old programs
     programsRef.current.forEach((prog) => {
       if (prog.program) {
@@ -309,12 +319,15 @@ export default function GlowAnimation({ anchorEl, config = {} }) {
       }
     });
 
+    // Create shaders and programs for each path
+    const vertexShader = createShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
+
     // Create programs for each path
     programsRef.current = activePaths.map((path) => {
       const fragmentShader = createShader(
         gl,
         gl.FRAGMENT_SHADER,
-        fragmentShaderSource
+        FRAGMENT_SHADER
       );
       const program = createProgram(gl, vertexShader, fragmentShader);
 
@@ -334,6 +347,7 @@ export default function GlowAnimation({ anchorEl, config = {} }) {
           "u_cameraDistance"
         ),
         pathTypeLocation: gl.getUniformLocation(program, "u_pathType"),
+        lineLengthLocation: gl.getUniformLocation(program, "u_lineLength"),
       };
     });
 
@@ -364,13 +378,19 @@ export default function GlowAnimation({ anchorEl, config = {} }) {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0, 0, 0, 0);
 
-    let animationId = null;
-    startTimeRef.current = Date.now();
-
     const animate = () => {
-      const currentTime = (Date.now() - startTimeRef.current) / 1000;
+      // Only animate when isPlaying is true
+      if (!isPlaying) {
+        animationIdRef.current = null;
+        // Clear canvas when not playing
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        return;
+      }
 
-      // Get anchor center
+      // Use performance.now() for smoother, more accurate timing
+      const currentTime = (performance.now() - startTimeRef.current) / 1000.0;
+
+      // Get anchor center (only calculate once per frame)
       let centerX = canvas.width / 2;
       let centerY = canvas.height / 2;
       if (anchorEl?.getBoundingClientRect) {
@@ -379,9 +399,36 @@ export default function GlowAnimation({ anchorEl, config = {} }) {
         centerY = rect.top + rect.height / 2;
       }
 
+      // Check if all animations are complete
+      let allComplete = true;
+      programsRef.current.forEach((prog) => {
+        const pathSpeed = prog.path.speed || config.speed || 2.0;
+        const pathDelay = prog.path.delay || 0;
+        const adjustedTime = currentTime - pathDelay;
+        if (adjustedTime >= 0) {
+          const phase = Math.min(adjustedTime * pathSpeed, 1.0);
+          if (phase < 1.0) {
+            allComplete = false;
+          }
+        } else {
+          allComplete = false;
+        }
+      });
+
+      // Stop animation if all paths are complete
+      if (allComplete && programsRef.current.length > 0) {
+        animationIdRef.current = null;
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        if (onAnimationComplete) {
+          onAnimationComplete();
+        }
+        return;
+      }
+
       gl.clear(gl.COLOR_BUFFER_BIT);
 
-      const cameraDistance = 10000;
+      const cameraDistance = 10000.0;
+      const lineLength = config.length || 200.0;
 
       // Draw each path
       programsRef.current.forEach((prog) => {
@@ -403,6 +450,7 @@ export default function GlowAnimation({ anchorEl, config = {} }) {
         );
         gl.uniform1f(prog.cameraDistanceLocation, cameraDistance);
         gl.uniform1f(prog.pathTypeLocation, PATH_TYPE_MAP[prog.path.type] || 0);
+        gl.uniform1f(prog.lineLengthLocation, lineLength);
 
         // Bind position buffer
         gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
@@ -413,14 +461,23 @@ export default function GlowAnimation({ anchorEl, config = {} }) {
         gl.drawArrays(gl.TRIANGLES, 0, 6);
       });
 
-      animationId = requestAnimationFrame(animate);
+      animationIdRef.current = requestAnimationFrame(animate);
     };
 
-    animate();
+    // Start animation if isPlaying is true
+    if (isPlaying && !animationIdRef.current) {
+      startTimeRef.current = performance.now();
+      animate();
+    } else if (!isPlaying && animationIdRef.current) {
+      cancelAnimationFrame(animationIdRef.current);
+      animationIdRef.current = null;
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
 
     return () => {
-      if (animationId) {
-        cancelAnimationFrame(animationId);
+      if (animationIdRef.current) {
+        cancelAnimationFrame(animationIdRef.current);
+        animationIdRef.current = null;
       }
       window.removeEventListener("resize", resizeCanvas);
       // Clean up programs
@@ -430,7 +487,7 @@ export default function GlowAnimation({ anchorEl, config = {} }) {
         }
       });
     };
-  }, [anchorEl, config]);
+  }, [anchorEl, config, isPlaying, onAnimationComplete]);
 
   return (
     <canvas

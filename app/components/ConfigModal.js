@@ -39,6 +39,10 @@ export default function ConfigModal({ open, onClose, config, onConfigChange }) {
     onConfigChange({ ...config, centerRadius: newValue });
   };
 
+  const handleLengthChange = (event, newValue) => {
+    onConfigChange({ ...config, length: newValue });
+  };
+
   const handleAddPath = () => {
     const newPath = {
       id: Date.now(),
@@ -191,6 +195,33 @@ export default function ConfigModal({ open, onClose, config, onConfigChange }) {
               step={0.1}
               valueLabelDisplay="auto"
               valueLabelFormat={(value) => `${value.toFixed(1)}px`}
+            />
+          </Box>
+
+          {/* Global Length Control */}
+          <Box>
+            <Typography
+              gutterBottom
+              variant="subtitle2"
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 1 }}
+            >
+              Line Length
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ color: "rgba(255, 215, 0, 0.7)", display: "block", mb: 1 }}
+            >
+              Controls the length of the line segment formed by circles
+              (default: 200px)
+            </Typography>
+            <Slider
+              value={config.length || 200.0}
+              onChange={handleLengthChange}
+              min={50}
+              max={500}
+              step={10}
+              valueLabelDisplay="auto"
+              valueLabelFormat={(value) => `${value.toFixed(0)}px`}
             />
           </Box>
 
