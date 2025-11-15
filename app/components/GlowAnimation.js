@@ -27,8 +27,7 @@ const generateFragmentShader = () => `
   uniform mediump float u_speed;
   uniform mediump float u_delay;
   uniform mediump float u_glow;
-  uniform mediump float u_centerThickness;
-  uniform mediump float u_endThickness;
+  uniform mediump float u_centerRadius;
   uniform mediump float u_cameraDistance;
   uniform mediump float u_pathType;
   varying vec2 v_position;
@@ -99,28 +98,50 @@ const generateFragmentShader = () => `
     return pos;
   }
 
-  // Calculate distance from point to curved line
-  float distanceToCurvedLine(vec2 pixelPos, float phase, float lineLength, float pathType) {
+  // Calculate approximate path length for a given path type
+  // This is used to convert pixel length to parameter length
+  float getPathLength(float pathType) {
     float betspotSize = 200.0;
-    float diagonal = betspotSize * 1.414213562;
-    float lineParamLength = lineLength / diagonal;
+    float halfSize = betspotSize * 0.5;
+    float pathOffset = 5.0;
     
-    // Line segment spans from phase to phase + lineParamLength
-    // The line should be exactly diagonal length, traveling along the path
-    float lineStartPhase = phase;
-    float lineEndPhase = phase + lineParamLength;
+    if (pathType < 1.5) {
+      // Diagonal paths (0 and 1) - approximate ellipse perimeter
+      float diagonalDist = halfSize * 1.414213562;
+      float semiMajor = diagonalDist + pathOffset;
+      float semiMinor = 5.0;
+      // Approximate ellipse perimeter: π * sqrt(2 * (a² + b²))
+      return 3.14159265 * sqrt(2.0 * (semiMajor * semiMajor + semiMinor * semiMinor));
+    } else if (pathType < 2.5) {
+      // Horizontal - full circle circumference
+      return 2.0 * 3.14159265 * (halfSize + pathOffset);
+    } else {
+      // Vertical - full circle circumference
+      return 2.0 * 3.14159265 * (halfSize + pathOffset);
+    }
+  }
+
+  // Find closest point on path segment and return distance and position along segment
+  // Returns: vec3(distance, t, alongLine) where alongLine is 0-1 position along the segment
+  vec3 findClosestPointOnPath(vec2 pixelPos, float phase, float segmentLength, float pathType) {
+    // Calculate path length to convert pixel length to parameter length
+    float pathLength = getPathLength(pathType);
+    float segmentParamLength = segmentLength / pathLength;
+    
+    // Segment spans from phase to phase + segmentParamLength
+    float segmentStartPhase = phase;
+    float segmentEndPhase = phase + segmentParamLength;
     
     // Clamp to [0, 1] - no wrapping, just a segment that travels
-    lineStartPhase = clamp(lineStartPhase, 0.0, 1.0);
-    lineEndPhase = clamp(lineEndPhase, 0.0, 1.0);
+    segmentStartPhase = clamp(segmentStartPhase, 0.0, 1.0);
+    segmentEndPhase = clamp(segmentEndPhase, 0.0, 1.0);
     
-    // Increase samples for better quality, especially for thicker lines
+    float closestT = 0.5;
     float minDist = 10000.0;
-    int samples = 400; // Increased for better quality
+    int samples = 300; // Samples for finding closest point
     
-    for (int i = 0; i < 400; i++) {
-      // Sample along the line segment (no wrapping)
-      float t = mix(lineStartPhase, lineEndPhase, float(i) / float(samples - 1));
+    for (int i = 0; i < 300; i++) {
+      float t = mix(segmentStartPhase, segmentEndPhase, float(i) / float(samples - 1));
       t = clamp(t, 0.0, 1.0);
       
       vec3 pathPos3D = getPathPosition(t, pathType);
@@ -128,10 +149,19 @@ const generateFragmentShader = () => `
       float dist = distance(pixelPos, pathPos2D);
       if (dist < minDist) {
         minDist = dist;
+        closestT = t;
       }
     }
     
-    return minDist;
+    // Calculate position along the segment (0 = start, 1 = end)
+    float phaseRange = segmentEndPhase - segmentStartPhase;
+    float alongLine = 0.5;
+    if (phaseRange > 0.001) {
+      alongLine = (closestT - segmentStartPhase) / phaseRange;
+    }
+    alongLine = clamp(alongLine, 0.0, 1.0);
+    
+    return vec3(minDist, closestT, alongLine);
   }
 
   void main() {
@@ -147,82 +177,46 @@ const generateFragmentShader = () => `
     // Animation phase (0 to 1, loops infinitely)
     float phase = mod(adjustedTime * u_speed, 1.0);
     
-    // Line length - exactly diagonal length
+    // Line length - exactly side length of BetSpot square (200px)
     float betspotSize = 200.0;
-    float diagonal = betspotSize * 1.414213562;
-    float lineLength = diagonal; // Line segment is exactly diagonal length
+    float lineLength = betspotSize;
     
-    // Calculate distance from pixel to the curved line
-    float distToLine = distanceToCurvedLine(pixelPos, phase, lineLength, u_pathType);
+    // Find closest point on path segment
+    vec3 closestInfo = findClosestPointOnPath(pixelPos, phase, lineLength, u_pathType);
+    float distToPath = closestInfo.x;
+    float alongLine = closestInfo.z;
     
-    // Calculate position along the line segment
-    float diagonal2 = betspotSize * 1.414213562;
-    float lineParamLength = lineLength / diagonal2;
-    float lineStartPhase = phase;
-    float lineEndPhase = phase + lineParamLength;
+    // Calculate circle radius based on position along line
+    // Center (alongLine = 0.5): u_centerRadius
+    // Ends (alongLine = 0.0 or 1.0): 0px radius
+    // Gradual decrease using smooth curve
+    float centerRadius = u_centerRadius;
     
-    // Clamp to [0, 1] - no wrapping
-    lineStartPhase = clamp(lineStartPhase, 0.0, 1.0);
-    lineEndPhase = clamp(lineEndPhase, 0.0, 1.0);
+    // Use smooth curve for gradual radius decrease
+    // Distance from center: 0 at center, 1 at ends
+    float distFromCenter = abs(alongLine - 0.5) * 2.0; // 0 to 1
+    // Use smoothstep for smoother taper
+    float smoothDist = smoothstep(0.0, 1.0, distFromCenter);
+    float radius = centerRadius * (1.0 - smoothDist);
     
-    float closestT = 0.5;
-    float minDistForT = 10000.0;
-    int samplesForT = 200; // Increased for better quality
-    for (int i = 0; i < 200; i++) {
-      float t = mix(lineStartPhase, lineEndPhase, float(i) / float(samplesForT - 1));
-      t = clamp(t, 0.0, 1.0);
-      
-      vec3 pathPos3D = getPathPosition(t, u_pathType);
-      vec2 pathPos2D = project3D(pathPos3D);
-      float dist = distance(pixelPos, pathPos2D);
-      if (dist < minDistForT) {
-        minDistForT = dist;
-        closestT = t;
-      }
-    }
+    // Draw circle at closest point
+    // Core circle (solid)
+    float circleAlpha = 1.0 - smoothstep(0.0, radius, distToPath);
     
-    // Calculate position along the line segment
-    float phaseRange = lineEndPhase - lineStartPhase;
-    float alongLine = 0.5;
-    if (phaseRange > 0.001) {
-      alongLine = (closestT - lineStartPhase) / phaseRange;
-    }
-    alongLine = clamp(alongLine, 0.0, 1.0);
+    // Glow effect - same gold color with reduced opacity, spread out
+    float glowSize = radius + u_glow * 2.0; // Spread the glow
+    float glowAlpha = 1.0 - smoothstep(radius, glowSize, distToPath);
+    glowAlpha *= 0.3; // Reduced opacity for glow
     
-    // Tapered thickness with glow - configurable
-    float centerThickness = u_centerThickness;
-    float endThickness = u_endThickness;
-    float thicknessFactor = 1.0 - abs(alongLine - 0.5) * 2.0;
-    float thickness = mix(endThickness, centerThickness, thicknessFactor);
+    // Combine core and glow
+    float totalAlpha = max(circleAlpha, glowAlpha);
+    totalAlpha = clamp(totalAlpha, 0.0, 1.0);
     
-    // Multi-layer glow for better quality
-    // Inner glow (core line)
-    float coreGlow = 1.0 - smoothstep(0.0, thickness, distToLine);
+    // Single gold color (no sparkle, consistent)
+    // Gold color: RGB(255, 215, 0) normalized
+    vec3 goldColor = vec3(1.0, 0.843, 0.0);
     
-    // Middle glow layer
-    float middleGlowSize = thickness + u_glow * 0.5;
-    float middleGlow = 1.0 - smoothstep(thickness, middleGlowSize, distToLine);
-    middleGlow *= 0.6; // Slightly less intense
-    
-    // Outer glow layer (soft halo)
-    float outerGlowSize = thickness + u_glow;
-    float outerGlow = 1.0 - smoothstep(middleGlowSize, outerGlowSize, distToLine);
-    outerGlow *= 0.3; // Soft outer glow
-    
-    // Combine all glow layers
-    float totalGlow = coreGlow + middleGlow + outerGlow;
-    totalGlow = clamp(totalGlow, 0.0, 1.0);
-    
-    // Sparkle effect
-    float sparkle = sin(alongLine * 3.14159 * 4.0 + u_time * 10.0) * 0.3 + 0.7;
-    
-    // Original white/yellow sparkle color
-    vec3 color = vec3(1.0, 1.0, 0.9) * (0.8 + sparkle * 0.2);
-    
-    // Calculate final alpha with enhanced glow
-    float alpha = totalGlow * sparkle;
-    
-    gl_FragColor = vec4(color, alpha);
+    gl_FragColor = vec4(goldColor, totalAlpha);
   }
 `;
 
@@ -299,6 +293,7 @@ export default function GlowAnimation({ anchorEl, config = {} }) {
       speed: config.speed || 2.0,
       delay: 0,
       glow: config.glow || 3.0,
+      centerRadius: config.centerRadius || 2.0,
     };
 
     const activePaths = paths.length > 0 ? paths : [defaultPath];
@@ -333,11 +328,7 @@ export default function GlowAnimation({ anchorEl, config = {} }) {
         speedLocation: gl.getUniformLocation(program, "u_speed"),
         delayLocation: gl.getUniformLocation(program, "u_delay"),
         glowLocation: gl.getUniformLocation(program, "u_glow"),
-        centerThicknessLocation: gl.getUniformLocation(
-          program,
-          "u_centerThickness"
-        ),
-        endThicknessLocation: gl.getUniformLocation(program, "u_endThickness"),
+        centerRadiusLocation: gl.getUniformLocation(program, "u_centerRadius"),
         cameraDistanceLocation: gl.getUniformLocation(
           program,
           "u_cameraDistance"
@@ -390,7 +381,7 @@ export default function GlowAnimation({ anchorEl, config = {} }) {
 
       gl.clear(gl.COLOR_BUFFER_BIT);
 
-      const cameraDistance = 1000;
+      const cameraDistance = 10000;
 
       // Draw each path
       programsRef.current.forEach((prog) => {
@@ -407,12 +398,8 @@ export default function GlowAnimation({ anchorEl, config = {} }) {
         gl.uniform1f(prog.delayLocation, prog.path.delay || 0);
         gl.uniform1f(prog.glowLocation, prog.path.glow || config.glow || 3.0);
         gl.uniform1f(
-          prog.centerThicknessLocation,
-          prog.path.centerThickness || config.centerThickness || 4.0
-        );
-        gl.uniform1f(
-          prog.endThicknessLocation,
-          prog.path.endThickness || config.endThickness || 1.0
+          prog.centerRadiusLocation,
+          prog.path.centerRadius || config.centerRadius || 2.0
         );
         gl.uniform1f(prog.cameraDistanceLocation, cameraDistance);
         gl.uniform1f(prog.pathTypeLocation, PATH_TYPE_MAP[prog.path.type] || 0);

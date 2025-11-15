@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { IconButton } from "@mui/material";
 import { Settings } from "@mui/icons-material";
+import { IconButton } from "@mui/material";
+import { useEffect, useRef, useState } from "react";
 import BetSpot from "./components/BetSpot";
 import Chip from "./components/Chip";
-import GlowAnimation from "./components/GlowAnimation";
 import ConfigModal from "./components/ConfigModal";
+import GlowAnimation from "./components/GlowAnimation";
 
 export default function Home() {
   const betspotRef = useRef(null);
@@ -15,29 +15,26 @@ export default function Home() {
   const [config, setConfig] = useState({
     speed: 2.0,
     glow: 3.0,
-    centerThickness: 4.0,
-    endThickness: 1.0,
+    centerRadius: 2.0,
     paths: [
       {
         id: 1,
-        type: "diagonal-tl-br",
-        speed: 2.0,
-        delay: 0,
-        glow: 3.0,
-        centerThickness: 4.0,
-        endThickness: 1.0,
-        enabled: true,
-      },
-      {
-        id: 2,
         type: "diagonal-tr-bl",
         speed: 2.0,
-        delay: 0.5,
-        glow: 3.0,
-        centerThickness: 4.0,
-        endThickness: 1.0,
+        delay: 0,
+        glow: 10.0,
+        centerRadius: 12.0,
         enabled: true,
       },
+      // {
+      //   id: 2,
+      //   type: "diagonal-bl-tr",
+      //   speed: 4.0,
+      //   delay: 0.3,
+      //   glow: 10.0,
+      //   centerRadius: 12.0,
+      //   enabled: true,
+      // },
     ],
   });
 
@@ -54,7 +51,7 @@ export default function Home() {
         <Chip />
       </div>
       {anchorEl && <GlowAnimation anchorEl={anchorEl} config={config} />}
-      
+
       {/* Config Toggle Button */}
       <IconButton
         onClick={() => setConfigOpen(true)}
