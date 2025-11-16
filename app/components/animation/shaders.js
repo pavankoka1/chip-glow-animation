@@ -40,6 +40,8 @@ uniform mediump float u_tiltX;             // camera tilt around X (radians)
 uniform mediump float u_tiltY;             // camera tilt around Y (radians)
 uniform mediump float u_depthAmp;          // depth amplitude (px)
 uniform mediump float u_depthPhase;        // depth phase (radians)
+uniform mediump float u_overshoot;         // extra phase beyond 1.0 (phase units)
+uniform mediump float u_fadeWindow;        // fade window in phase after tail end
 varying vec2 v_position;
 
 vec2 project3D(vec3 pos3D) {
@@ -71,7 +73,7 @@ vec3 ellipsePositionLocal(float thetaLocal) {
 
 // Approximate arc length over local theta range (match projection & tilt)
 float approximateArcLength(float theta0, float theta1) {
-  const int SAMPLES_ARC = 128;
+  const int SAMPLES_ARC = 64;
   float total = 0.0;
   vec3 prev3 = ellipsePositionLocal(theta0);
   vec2 prev = project3D(prev3);
@@ -89,7 +91,7 @@ float approximateArcLength(float theta0, float theta1) {
 // Find closest point along the current visible segment [theta0, theta1] in local theta
 // Returns (distancePx, thetaChosenLocal, along01)
 vec3 findClosestOnSegment(vec2 pixelPos, float theta0, float theta1) {
-  const int SAMPLES_CLOSE = 256;
+  const int SAMPLES_CLOSE = 64;
   float minDist = 1e9;
   float bestT = 0.5;
   for (int i = 0; i < SAMPLES_CLOSE; i++) {
@@ -116,7 +118,6 @@ void main() {
     gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
     return;
   }
-  float phase = adjustedTime / max(u_animationTime, 0.0001);
 
   // Local theta range (e.g., 0..|delta|)
   float thetaStart = u_thetaStart;
@@ -126,18 +127,23 @@ void main() {
   float totalArcPx = approximateArcLength(thetaStart, thetaEnd);
   float segmentParam = clamp(u_lineLength / max(totalArcPx, 0.0001), 0.0, 1.0);
 
+  // Phase scaling so the full animation (head+tail+overshoot) fits u_animationTime
+  float totalSpan = 1.0 + segmentParam + u_overshoot;
+  float phase = (adjustedTime / max(u_animationTime, 0.0001)) * totalSpan;
+
   // Allow animation to continue until tail reaches end
-  float maxPhase = 1.0 + segmentParam;
-  if (phase >= maxPhase) {
+  float maxPhase = totalSpan;
+  if (phase >= maxPhase + u_fadeWindow) {
     gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
     return;
   }
 
-  float segHead = clamp(phase, 0.0, 1.0);
+  // Head can overshoot slightly into the overshoot range
+  float segHead = clamp(phase, 0.0, totalSpan);
   float segTail = clamp(phase - segmentParam, 0.0, 1.0);
 
   float thetaTail = mix(thetaStart, thetaEnd, segTail);
-  float thetaHead = mix(thetaStart, thetaEnd, segHead);
+  float thetaHead = mix(thetaStart, thetaEnd, min(segHead, 1.0));
 
   // Closest point on the visible segment
   vec3 closest = findClosestOnSegment(pixelPos, thetaTail, thetaHead);
@@ -158,9 +164,13 @@ void main() {
   float totalAlpha = max(coreAlpha, glowAlpha);
   totalAlpha = clamp(totalAlpha, 0.0, 1.0);
 
+  // Fade out gracefully during overshoot window
+  if (phase > maxPhase) {
+    float fadeMul = 1.0 - smoothstep(maxPhase, maxPhase + max(u_fadeWindow, 0.0001), phase);
+    totalAlpha *= fadeMul;
+  }
+
   vec3 gold = vec3(1.0, 0.843, 0.0);
   gl_FragColor = vec4(gold, totalAlpha);
 }
 `;
-
-

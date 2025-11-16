@@ -16,8 +16,11 @@ export const DEFAULT_CONFIG = {
   cameraDistance: 4000,
   viewTiltXDeg: 0,  // camera pitch (deg), rotates around X
   viewTiltYDeg: 0,  // camera yaw (deg), rotates around Y
-  depthAmplitude: 100, // px amplitude for depth oscillation
+  depthAmplitude: 0, // default no depth to avoid diagonal deviation
   depthPhaseDeg: 0,    // phase shift (deg) for depth oscillation
+  overshoot: 0.08,
+  fadeWindow: 0.08,
+  debug: false,
   paths: [
     {
       id: 1,
@@ -27,7 +30,8 @@ export const DEFAULT_CONFIG = {
       enabled: true,
       // Optional overrides per-path:
       // animationTimeMs, glowRadius, ellipse: {a,b}, centerRadius, endRadius, length,
-      // cameraDistance, viewTiltXDeg, viewTiltYDeg, depthAmplitude, depthPhaseDeg, ellipseRotationDeg
+      // cameraDistance, viewTiltXDeg, viewTiltYDeg, depthAmplitude, depthPhaseDeg, ellipseRotationDeg,
+      // overshoot, fadeWindow, debug
     },
   ],
 };

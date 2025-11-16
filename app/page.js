@@ -14,14 +14,14 @@ export default function Home() {
   const [configOpen, setConfigOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [config, setConfig] = useState({
-    animationTimeMs: 1000,
+    animationTimeMs: 500,
     glowRadius: 30,
-    ellipse: { a: 150, b: 50 },
-    centerRadius: 5,
-    endRadius: 2,
+    ellipse: { a: 200, b: 4 },
+    centerRadius: 10,
+    endRadius: 5,
     length: 300,
     // Camera / depth / tilt defaults
-    cameraDistance: 10000,
+    cameraDistance: 2000,
     viewTiltXDeg: 0,
     viewTiltYDeg: 0,
     depthAmplitude: 100,
@@ -39,26 +39,26 @@ export default function Home() {
         id: 2,
         startVertex: "BL",
         endVertex: "TR",
-        delay: 500,
+        delay: 300,
         length: 100,
         enabled: true,
       },
-      // {
-      //   id: 3,
-      //   startVertex: "BR",
-      //   endVertex: "TL",
-      //   delay: 1250,
-      //   length: 100,
-      //   enabled: true,
-      // },
-      // {
-      //   id: 4,
-      //   startVertex: "BL",
-      //   endVertex: "TR",
-      //   delay: 1750,
-      //   length: 100,
-      //   enabled: true,
-      // },
+      {
+        id: 3,
+        startVertex: "BR",
+        endVertex: "TL",
+        delay: 900,
+        length: 100,
+        enabled: true,
+      },
+      {
+        id: 4,
+        startVertex: "BL",
+        endVertex: "TR",
+        delay: 1200,
+        length: 100,
+        enabled: true,
+      },
     ],
   });
 
