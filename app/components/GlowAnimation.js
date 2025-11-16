@@ -1,315 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-
-const VERTEX_SHADER = `
-  precision mediump float;
-  attribute vec2 a_position;
-  uniform vec2 u_resolution;
-  varying vec2 v_position;
-
-  void main() {
-    v_position = a_position;
-    vec2 zeroToOne = a_position / u_resolution;
-    vec2 zeroToTwo = zeroToOne * 2.0;
-    vec2 clipSpace = vec2(zeroToTwo.x - 1.0, 1.0 - zeroToTwo.y);
-    gl_Position = vec4(clipSpace, 0, 1);
-  }
-`;
-
-// Fragment shader with path type support
-const FRAGMENT_SHADER = `
-  precision mediump float;
-  uniform vec2 u_resolution;
-  uniform vec2 u_center;
-  uniform mediump float u_time;
-  uniform mediump float u_speed;
-  uniform mediump float u_delay;
-  uniform mediump float u_glow;
-  uniform mediump float u_centerRadius;
-  uniform mediump float u_cameraDistance;
-  uniform mediump float u_pathType;
-  uniform mediump float u_lineLength;
-  varying vec2 v_position;
-
-  // Project 3D point to 2D screen space with perspective
-  vec2 project3D(vec3 pos3D) {
-    float perspective = 1.0 + (pos3D.z / u_cameraDistance);
-    return pos3D.xy / perspective;
-  }
-
-  // Calculate position on path based on type
-  // t: parameter from 0 to 1
-  // pathType: 0=diagonal-tl-br, 1=diagonal-tr-bl, 2=horizontal, 3=vertical
-  vec3 getPathPosition(float t, float pathType) {
-    // Clamp t to [0, 1] - no looping, single pass
-    t = clamp(t, 0.0, 1.0);
-    // Fixed path size (betspot size)
-    float betspotSize = 200.0;
-    float halfSize = betspotSize * 0.5;
-    float pathOffset = 5.0; // 5px away from betspot edge
-    float depth = 100.0;
-    
-    vec3 pos;
-    
-    if (pathType < 0.5) {
-      // Diagonal: Top Left to Bottom Right
-      float diagonalDist = halfSize * 1.414213562;
-      float semiMajor = diagonalDist + pathOffset;
-      float semiMinor = 5.0;
-      float ellipseParam = t * 3.14159265;
-      float localX = cos(ellipseParam) * semiMajor;
-      float localY = sin(ellipseParam) * semiMinor;
-      float angle = -0.785398163; // -45°
-      float cosAngle = cos(angle);
-      float sinAngle = sin(angle);
-      float worldX = localX * cosAngle - localY * sinAngle;
-      float worldY = localX * sinAngle + localY * cosAngle;
-      pos = vec3(u_center.x + worldX, u_center.y + worldY, sin(ellipseParam) * depth);
-    } else if (pathType < 1.5) {
-      // Diagonal: Top Right to Bottom Left
-      float diagonalDist = halfSize * 1.414213562;
-      float semiMajor = diagonalDist + pathOffset;
-      float semiMinor = 5.0;
-      float ellipseParam = t * 3.14159265;
-      float localX = cos(ellipseParam) * semiMajor;
-      float localY = sin(ellipseParam) * semiMinor;
-      float angle = 0.785398163; // 45°
-      float cosAngle = cos(angle);
-      float sinAngle = sin(angle);
-      float worldX = localX * cosAngle - localY * sinAngle;
-      float worldY = localX * sinAngle + localY * cosAngle;
-      pos = vec3(u_center.x + worldX, u_center.y + worldY, sin(ellipseParam) * depth);
-    } else if (pathType < 2.5) {
-      // Horizontal
-      float ellipseParam = t * 3.14159265 * 2.0; // Full ellipse
-      float x = u_center.x + cos(ellipseParam) * (halfSize + pathOffset);
-      float y = u_center.y;
-      float z = sin(ellipseParam) * depth;
-      pos = vec3(x, y, z);
-    } else {
-      // Vertical
-      float ellipseParam = t * 3.14159265 * 2.0; // Full ellipse
-      float x = u_center.x;
-      float y = u_center.y + cos(ellipseParam) * (halfSize + pathOffset);
-      float z = sin(ellipseParam) * depth;
-      pos = vec3(x, y, z);
-    }
-    
-    return pos;
-  }
-
-  // Calculate approximate path length for a given path type
-  // This is used to convert pixel length to parameter length
-  float getPathLength(float pathType) {
-    // Fixed path size (betspot size)
-    float betspotSize = 200.0;
-    float halfSize = betspotSize * 0.5;
-    float pathOffset = 5.0;
-    
-    if (pathType < 1.5) {
-      // Diagonal paths (0 and 1) - approximate ellipse perimeter
-      float diagonalDist = halfSize * 1.414213562;
-      float semiMajor = diagonalDist + pathOffset;
-      float semiMinor = 5.0;
-      // Approximate ellipse perimeter: π * sqrt(2 * (a² + b²))
-      return 3.14159265 * sqrt(2.0 * (semiMajor * semiMajor + semiMinor * semiMinor));
-    } else if (pathType < 2.5) {
-      // Horizontal - full circle circumference
-      return 2.0 * 3.14159265 * (halfSize + pathOffset);
-    } else {
-      // Vertical - full circle circumference
-      return 2.0 * 3.14159265 * (halfSize + pathOffset);
-    }
-  }
-
-  // Find closest point on path segment and return distance and position along segment
-  // Returns: vec3(distance, t, alongLine) where alongLine is 0-1 position along the segment
-  vec3 findClosestPointOnPath(vec2 pixelPos, float phase, float segmentLength, float pathType) {
-    // Calculate path length to convert pixel length to parameter length
-    float pathLength = getPathLength(pathType);
-    float segmentParamLength = segmentLength / pathLength;
-    
-    // For ellipse paths, we want the head (front) to start at the major axis vertex
-    // So we offset backwards: head at phase, tail at phase - segmentParamLength
-    // For other paths, keep the original behavior (tail at phase, head at phase + segmentParamLength)
-    float originalStartPhase;
-    float originalEndPhase;
-    float segmentStartPhase;
-    float segmentEndPhase;
-    
-    if (pathType < 1.5) {
-      // Ellipse paths: head starts at phase, tail is behind
-      originalEndPhase = phase;  // Head position
-      originalStartPhase = phase - segmentParamLength;  // Tail position (behind head)
-      
-      // For ellipse paths, when phase > 1.0, keep head at end (t=1.0) and move tail forward
-      if (phase > 1.0) {
-        segmentEndPhase = 1.0;  // Head stays at end of path
-        segmentStartPhase = phase - segmentParamLength;  // Tail continues forward
-      } else {
-        segmentEndPhase = phase;
-        segmentStartPhase = phase - segmentParamLength;
-      }
-    } else {
-      // Horizontal and vertical paths: tail at phase, head ahead
-      originalStartPhase = phase;
-      originalEndPhase = phase + segmentParamLength;
-      segmentStartPhase = phase;
-      segmentEndPhase = phase + segmentParamLength;
-    }
-    
-    // Clamp to [0, 1] - no wrapping, just a segment that travels
-    segmentStartPhase = clamp(segmentStartPhase, 0.0, 1.0);
-    segmentEndPhase = clamp(segmentEndPhase, 0.0, 1.0);
-    
-    float closestT = 0.5;
-    float minDist = 10000.0;
-    int samples = 300; // Samples for finding closest point
-    
-    for (int i = 0; i < 300; i++) {
-      float t = mix(segmentStartPhase, segmentEndPhase, float(i) / float(samples - 1));
-      t = clamp(t, 0.0, 1.0);
-      
-      vec3 pathPos3D = getPathPosition(t, pathType);
-      vec2 pathPos2D = project3D(pathPos3D);
-      float dist = distance(pixelPos, pathPos2D);
-      if (dist < minDist) {
-        minDist = dist;
-        closestT = t;
-      }
-    }
-    
-    // Calculate position along the segment (0 = tail, 1 = head)
-    // Use the actual visible segment range for alongLine calculation
-    float visibleRange = segmentEndPhase - segmentStartPhase;
-    float alongLine = 0.5;
-    if (abs(visibleRange) > 0.001) {
-      alongLine = (closestT - segmentStartPhase) / visibleRange;
-    }
-    // Clamp alongLine to [0, 1]
-    alongLine = clamp(alongLine, 0.0, 1.0);
-    
-    return vec3(minDist, closestT, alongLine);
-  }
-
-  void main() {
-    vec2 pixelPos = v_position;
-    
-    // Apply delay to time
-    float adjustedTime = u_time - u_delay;
-    if (adjustedTime < 0.0) {
-      gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-      return;
-    }
-    
-    // Calculate raw phase (can go beyond 1.0 for ellipse paths)
-    float rawPhase = adjustedTime * u_speed;
-    
-    // Calculate path length and segment parameter length for completion check
-    float lineLength = u_lineLength;
-    float pathLength = getPathLength(u_pathType);
-    float segmentParamLength = lineLength / pathLength;
-    
-    // For ellipse paths, animation completes when tail reaches the end
-    // Tail is at (phase - segmentParamLength), so it completes when: phase - segmentParamLength >= 1.0
-    // Which means: phase >= 1.0 + segmentParamLength
-    // For other paths, animation completes when head reaches the end: phase >= 1.0
-    float maxPhase;
-    if (u_pathType < 1.5) {
-      // Ellipse paths: continue until tail completes (phase can go beyond 1.0)
-      maxPhase = 1.0 + segmentParamLength;
-    } else {
-      // Horizontal and vertical paths: complete when head reaches end
-      maxPhase = 1.0;
-    }
-    
-    // Clamp phase to valid range [0, maxPhase]
-    float phase = clamp(rawPhase, 0.0, maxPhase);
-    
-    // If animation is complete, don't render
-    if (rawPhase >= maxPhase) {
-      gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-      return;
-    }
-    
-    // Find closest point on path segment
-    vec3 closestInfo = findClosestPointOnPath(pixelPos, phase, lineLength, u_pathType);
-    float distToPath = closestInfo.x;
-    float alongLine = closestInfo.z;
-    
-    // Calculate circle radius based on position along line
-    // Center (alongLine = 0.5): u_centerRadius
-    // Ends (alongLine = 0.0 or 1.0): 0px radius
-    // Gradual decrease using smooth curve
-    float centerRadius = u_centerRadius;
-    
-    // Use smooth curve for gradual radius decrease
-    // Distance from center: 0 at center, 1 at ends
-    float distFromCenter = abs(alongLine - 0.5) * 2.0; // 0 to 1
-    // Use smoothstep for smoother taper
-    float smoothDist = smoothstep(0.0, 1.0, distFromCenter);
-    float radius = centerRadius * (1.0 - smoothDist);
-    
-    // Draw circle at closest point
-    // Core circle (solid)
-    float circleAlpha = 1.0 - smoothstep(0.0, radius, distToPath);
-    
-    // Glow effect - same gold color with reduced opacity, spread out
-    float glowSize = radius + u_glow * 2.0; // Spread the glow
-    float glowAlpha = 1.0 - smoothstep(radius, glowSize, distToPath);
-    glowAlpha *= 0.3; // Reduced opacity for glow
-    
-    // Combine core and glow
-    float totalAlpha = max(circleAlpha, glowAlpha);
-    totalAlpha = clamp(totalAlpha, 0.0, 1.0);
-    
-    // Single gold color (no sparkle, consistent)
-    // Gold color: RGB(255, 215, 0) normalized
-    vec3 goldColor = vec3(1.0, 0.843, 0.0);
-    
-    gl_FragColor = vec4(goldColor, totalAlpha);
-  }
-`;
-
-function createShader(gl, type, source) {
-  const shader = gl.createShader(type);
-  if (!shader) {
-    throw new Error("Failed to create shader");
-  }
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const info = gl.getShaderInfoLog(shader);
-    gl.deleteShader(shader);
-    throw new Error(`Shader compilation error: ${info}`);
-  }
-  return shader;
-}
-
-function createProgram(gl, vertexShader, fragmentShader) {
-  const program = gl.createProgram();
-  if (!program) {
-    throw new Error("Failed to create program");
-  }
-  gl.attachShader(program, vertexShader);
-  gl.attachShader(program, fragmentShader);
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const info = gl.getProgramInfoLog(program);
-    gl.deleteProgram(program);
-    throw new Error(`Program linking error: ${info}`);
-  }
-  return program;
-}
-
-// Map path type string to number
-const PATH_TYPE_MAP = {
-  "diagonal-tl-br": 0,
-  "diagonal-tr-bl": 1,
-  horizontal: 2,
-  vertical: 3,
-};
+import { drawSpark, disposeSpark } from "./animation/Spark";
+import { DEFAULT_CONFIG } from "./animation/constants";
+import { getAngleForVertex } from "./animation/utils";
+import { CAMERA_DISTANCE } from "./animation/constants";
 
 export default function GlowAnimation({
   anchorEl,
@@ -319,23 +14,71 @@ export default function GlowAnimation({
 }) {
   const canvasRef = useRef(null);
   const startTimeRef = useRef(null);
-  const programsRef = useRef([]);
-  const animationIdRef = useRef(null);
+  const animationIdRef = [];
+  const glRef = useRef(null);
+  const positionBufferRef = useRef(null);
+  const pathMetricsRef = useRef(new Map()); // key: path.id -> { pathLength, thetaEndLocal, rotAngle, dir, centerX, centerY, a, b, cam, tiltX, tiltY, depthAmp, depthPhase, rotExtra }
+  const statusRef = useRef(new Map());
+
+  const delayToSeconds = (v) => (typeof v === "number" && !Number.isNaN(v) ? (v > 20 ? v / 1000 : v) : 0);
+  const degToRad = (d) => (d * Math.PI) / 180;
+
+  // Compute arc length along rotated ellipse with perspective (includes center translation and tilt), matching shader
+  const computePathLength = (a, b, rotAngle, rotExtra, thetaStart, thetaEnd, centerX, centerY, camDist, tiltX, tiltY, depthAmp, depthPhase) => {
+    const SAMPLES = 128;
+    const baseRot = rotAngle + rotExtra;
+    const c = Math.cos(baseRot);
+    const s = Math.sin(baseRot);
+    const cx = Math.cos(tiltX), sx = Math.sin(tiltX);
+    const cy = Math.cos(tiltY), sy = Math.sin(tiltY);
+
+    const project = (lx, ly, th) => {
+      const rx = c * lx - s * ly;
+      const ry = s * lx + c * ly;
+      const rz = depthAmp * Math.sin(th + depthPhase);
+      // tilt X
+      const tx = rx;
+      const ty = cx * ry - sx * rz;
+      const tz = sx * ry + cx * rz;
+      // tilt Y
+      const ux = cy * tx + sy * tz;
+      const uy = ty;
+      const uz = -sy * tx + cy * tz;
+      const px = (centerX + ux) / (1 + uz / camDist);
+      const py = (centerY + uy) / (1 + uz / camDist);
+      return [px, py];
+    };
+
+    let lx0 = a * Math.cos(thetaStart);
+    let ly0 = b * Math.sin(thetaStart);
+    let [px0, py0] = project(lx0, ly0, thetaStart);
+    let total = 0;
+    let ppx = px0;
+    let ppy = py0;
+    for (let i = 1; i <= SAMPLES; i++) {
+      const t = i / SAMPLES;
+      const th = thetaStart + (thetaEnd - thetaStart) * t;
+      const lx = a * Math.cos(th);
+      const ly = b * Math.sin(th);
+      const [px, py] = project(lx, ly, th);
+      total += Math.hypot(px - ppx, py - ppy);
+      ppx = px;
+      ppy = py;
+    }
+    return total;
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const gl = canvas.getContext("webgl", {
-      alpha: true,
-      premultipliedAlpha: false,
-    });
+    const gl = canvas.getContext("webgl", { alpha: true, premultipliedAlpha: false });
     if (!gl) {
       console.error("WebGL not supported");
       return;
     }
+    glRef.current = gl;
 
-    // Set canvas size
     const resizeCanvas = () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
@@ -344,97 +87,38 @@ export default function GlowAnimation({
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
 
-    // Get enabled paths or default
-    const paths = (config.paths || []).filter((p) => p.enabled !== false);
-    const defaultPath = {
-      type: "diagonal-tl-br",
-      speed: config.speed || 2.0,
-      delay: 0,
-      glow: config.glow || 3.0,
-      centerRadius: config.centerRadius || 2.0,
-    };
-
-    const activePaths = paths.length > 0 ? paths : [defaultPath];
-
-    // Clean up old programs
-    programsRef.current.forEach((prog) => {
-      if (prog.program) {
-        gl.deleteProgram(prog.program);
-      }
-    });
-
-    // Create shaders and programs for each path
-    const vertexShader = createShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
-
-    // Create programs for each path
-    programsRef.current = activePaths.map((path) => {
-      const fragmentShader = createShader(
-        gl,
-        gl.FRAGMENT_SHADER,
-        FRAGMENT_SHADER
-      );
-      const program = createProgram(gl, vertexShader, fragmentShader);
-
-      return {
-        program,
-        path,
-        positionLocation: gl.getAttribLocation(program, "a_position"),
-        resolutionLocation: gl.getUniformLocation(program, "u_resolution"),
-        centerLocation: gl.getUniformLocation(program, "u_center"),
-        timeLocation: gl.getUniformLocation(program, "u_time"),
-        speedLocation: gl.getUniformLocation(program, "u_speed"),
-        delayLocation: gl.getUniformLocation(program, "u_delay"),
-        glowLocation: gl.getUniformLocation(program, "u_glow"),
-        centerRadiusLocation: gl.getUniformLocation(program, "u_centerRadius"),
-        cameraDistanceLocation: gl.getUniformLocation(
-          program,
-          "u_cameraDistance"
-        ),
-        pathTypeLocation: gl.getUniformLocation(program, "u_pathType"),
-        lineLengthLocation: gl.getUniformLocation(program, "u_lineLength"),
-      };
-    });
-
-    // Create position buffer (full screen quad)
+    // Full-screen quad
     const positionBuffer = gl.createBuffer();
+    positionBufferRef.current = positionBuffer;
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     gl.bufferData(
       gl.ARRAY_BUFFER,
       new Float32Array([
-        0,
-        0,
-        canvas.width,
-        0,
-        0,
-        canvas.height,
-        0,
-        canvas.height,
-        canvas.width,
-        0,
-        canvas.width,
-        canvas.height,
+        0, 0,
+        canvas.width, 0,
+        0, canvas.height,
+        0, canvas.height,
+        canvas.width, 0,
+        canvas.width, canvas.height,
       ]),
       gl.STATIC_DRAW
     );
 
-    // Enable blending with additive for multiple paths
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0, 0, 0, 0);
 
     const animate = () => {
-      // Only animate when isPlaying is true
       if (!isPlaying) {
-        animationIdRef.current = null;
-        // Clear canvas when not playing
+        animationIdRef[0] = null;
         gl.clear(gl.COLOR_BUFFER_BIT);
         return;
       }
 
-      // Use performance.now() for smoother, more accurate timing
-      const currentTime = (performance.now() - startTimeRef.current) / 1000.0;
+      const currentTimeMs = performance.now() - startTimeRef.current;
+      const currentTimeSec = currentTimeMs / 1000.0;
 
-      // Get anchor center (only calculate once per frame)
+      // Determine anchor center in screen coords
       let centerX = canvas.width / 2;
       let centerY = canvas.height / 2;
       if (anchorEl?.getBoundingClientRect) {
@@ -443,125 +127,191 @@ export default function GlowAnimation({
         centerY = rect.top + rect.height / 2;
       }
 
-      // Check if all animations are complete
-      let allComplete = true;
-      const length = config.length || 200.0;
+      // Merge config and active paths
+      const cfg = { ...DEFAULT_CONFIG, ...config };
+      const activePaths = (cfg.paths || []).filter((p) => p.enabled !== false);
 
-      programsRef.current.forEach((prog) => {
-        const pathSpeed = prog.path.speed || config.speed || 2.0;
-        const pathDelay = prog.path.delay || 0;
-        const adjustedTime = currentTime - pathDelay;
-        if (adjustedTime >= 0) {
-          const rawPhase = adjustedTime * pathSpeed;
-          const pathType = PATH_TYPE_MAP[prog.path.type] || 0;
+      // Ensure metrics exist and are up to date for all active paths
+      for (const p of activePaths) {
+        const ellipse = p.ellipse || cfg.ellipse;
+        const startDir = getAngleForVertex(p.startVertex);
+        const endDir = getAngleForVertex(p.endVertex);
+        let delta = ((endDir - startDir + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI; // (-pi,pi]
+        let dir = Math.sign(delta) || 1;
+        const thetaStartLocal = 0.0;
+        const thetaEndLocal = Math.abs(delta || Math.PI);
+        const rotAngle = startDir;
 
-          // Calculate path length for this path type
-          const betspotSize = 200.0;
-          const halfSize = betspotSize * 0.5;
-          const pathOffset = 5.0;
-          let pathLength;
+        const cam = p.cameraDistance ?? cfg.cameraDistance ?? CAMERA_DISTANCE;
+        const tiltX = degToRad(p.viewTiltXDeg ?? cfg.viewTiltXDeg ?? 0);
+        const tiltY = degToRad(p.viewTiltYDeg ?? cfg.viewTiltYDeg ?? 0);
+        const depthAmp = p.depthAmplitude ?? cfg.depthAmplitude ?? 100;
+        const depthPhase = degToRad(p.depthPhaseDeg ?? cfg.depthPhaseDeg ?? 0);
+        const rotExtra = degToRad(p.ellipseRotationDeg ?? 0);
 
-          if (pathType < 1.5) {
-            // Diagonal paths (ellipse) - approximate ellipse perimeter
-            const diagonalDist = halfSize * 1.414213562;
-            const semiMajor = diagonalDist + pathOffset;
-            const semiMinor = 5.0;
-            pathLength =
-              Math.PI *
-              Math.sqrt(2.0 * (semiMajor * semiMajor + semiMinor * semiMinor));
-          } else if (pathType < 2.5) {
-            // Horizontal - full circle circumference
-            pathLength = 2.0 * Math.PI * (halfSize + pathOffset);
-          } else {
-            // Vertical - full circle circumference
-            pathLength = 2.0 * Math.PI * (halfSize + pathOffset);
-          }
+        const prev = pathMetricsRef.current.get(p.id);
+        if (
+          !prev ||
+          prev.centerX !== centerX ||
+          prev.centerY !== centerY ||
+          prev.a !== ellipse.a ||
+          prev.b !== ellipse.b ||
+          prev.thetaEndLocal !== thetaEndLocal ||
+          prev.rotAngle !== rotAngle ||
+          prev.dir !== dir ||
+          prev.cam !== cam ||
+          prev.tiltX !== tiltX ||
+          prev.tiltY !== tiltY ||
+          prev.depthAmp !== depthAmp ||
+          prev.depthPhase !== depthPhase ||
+          prev.rotExtra !== rotExtra
+        ) {
+          const pathLength = computePathLength(
+            ellipse.a,
+            ellipse.b,
+            rotAngle,
+            rotExtra,
+            thetaStartLocal,
+            thetaEndLocal,
+            centerX,
+            centerY,
+            cam,
+            tiltX,
+            tiltY,
+            depthAmp,
+            depthPhase
+          );
+          pathMetricsRef.current.set(p.id, {
+            pathLength,
+            thetaEndLocal,
+            rotAngle,
+            dir,
+            centerX,
+            centerY,
+            a: ellipse.a,
+            b: ellipse.b,
+            cam,
+            tiltX,
+            tiltY,
+            depthAmp,
+            depthPhase,
+            rotExtra,
+          });
+          console.log("[SparkMetrics] recomputed", {
+            id: p.id,
+            centerX,
+            centerY,
+            a: ellipse.a,
+            b: ellipse.b,
+            rotAngle,
+            rotExtra,
+            thetaEndLocal,
+            cam,
+            tiltX,
+            tiltY,
+            depthAmp,
+            depthPhase,
+            pathLength,
+          });
+        }
+      }
 
-          const segmentParamLength = length / pathLength;
+      // Determine if all paths completed (tail reached end)
+      let allComplete = activePaths.length > 0;
+      const animationTimeMsGlobal = cfg.animationTimeMs ?? DEFAULT_CONFIG.animationTimeMs;
 
-          // For ellipse paths, complete when tail reaches end: rawPhase >= 1.0 + segmentParamLength
-          // For other paths, complete when head reaches end: rawPhase >= 1.0
-          const maxPhase = pathType < 1.5 ? 1.0 + segmentParamLength : 1.0;
+      for (const p of activePaths) {
+        const delayRaw = p.delay || 0;
+        const delaySec = delayToSeconds(delayRaw);
+        const durationSec = (p.animationTimeMs ?? animationTimeMsGlobal) / 1000.0;
+        const rawPhase = (currentTimeSec - delaySec) / Math.max(durationSec, 0.0001);
+
+        const metrics = pathMetricsRef.current.get(p.id);
+        const lineLength = p.length ?? cfg.length ?? 300.0;
+        const pathLength = metrics?.pathLength || 1.0;
+        const segmentParam = lineLength / Math.max(pathLength, 0.0001);
+        const maxPhase = 1.0 + segmentParam; // run until tail reaches end
+
+        // Status transitions for debugging
+        let status = statusRef.current.get(p.id) || "pending";
+        let nextStatus = status;
+        if (rawPhase < 0) nextStatus = "pending";
+        else if (rawPhase < 1.0) nextStatus = "running";
+        else if (rawPhase < maxPhase) nextStatus = "head_done";
+        else nextStatus = "complete";
+        if (nextStatus !== status) {
+          statusRef.current.set(p.id, nextStatus);
+          console.log("[SparkStatus]", {
+            id: p.id,
+            delayRaw,
+            delaySec,
+            nowMs: Math.round(currentTimeMs),
+            rawPhase: rawPhase.toFixed(3),
+            segmentParam: segmentParam.toFixed(3),
+            maxPhase: maxPhase.toFixed(3),
+            status: nextStatus,
+          });
+        }
 
           if (rawPhase < maxPhase) {
-            allComplete = false;
-          }
-        } else {
           allComplete = false;
         }
-      });
+      }
 
-      // Stop animation if all paths are complete
-      if (allComplete && programsRef.current.length > 0) {
-        animationIdRef.current = null;
+      if (allComplete && activePaths.length > 0) {
+        animationIdRef[0] = null;
         gl.clear(gl.COLOR_BUFFER_BIT);
-        if (onAnimationComplete) {
-          onAnimationComplete();
-        }
+        console.log("[Animation] complete all paths at", Math.round(currentTimeMs), "ms");
+        if (onAnimationComplete) onAnimationComplete();
         return;
       }
 
       gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBufferRef.current);
 
-      const cameraDistance = 4000.0;
-      const lineLength = config.length || 200.0;
-
-      // Draw each path
-      programsRef.current.forEach((prog) => {
-        gl.useProgram(prog.program);
-
-        // Set uniforms
-        gl.uniform2f(prog.resolutionLocation, canvas.width, canvas.height);
-        gl.uniform2f(prog.centerLocation, centerX, centerY);
-        gl.uniform1f(prog.timeLocation, currentTime);
-        gl.uniform1f(
-          prog.speedLocation,
-          prog.path.speed || config.speed || 2.0
-        );
-        gl.uniform1f(prog.delayLocation, prog.path.delay || 0);
-        gl.uniform1f(prog.glowLocation, prog.path.glow || config.glow || 3.0);
-        gl.uniform1f(
-          prog.centerRadiusLocation,
-          prog.path.centerRadius || config.centerRadius || 2.0
-        );
-        gl.uniform1f(prog.cameraDistanceLocation, cameraDistance);
-        gl.uniform1f(prog.pathTypeLocation, PATH_TYPE_MAP[prog.path.type] || 0);
-        gl.uniform1f(prog.lineLengthLocation, lineLength);
-
-        // Bind position buffer
-        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-        gl.enableVertexAttribArray(prog.positionLocation);
-        gl.vertexAttribPointer(prog.positionLocation, 2, gl.FLOAT, false, 0, 0);
-
-        // Draw
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
+      // Render each spark/path
+      activePaths.forEach((path) => {
+        drawSpark({
+          gl,
+          canvas,
+          anchorCenter: [centerX, centerY],
+          timeNowSec: currentTimeSec,
+          globalConfig: cfg,
+          pathConfig: path,
+        });
       });
 
-      animationIdRef.current = requestAnimationFrame(animate);
+      animationIdRef[0] = requestAnimationFrame(animate);
     };
 
-    // Start animation if isPlaying is true
-    if (isPlaying && !animationIdRef.current) {
+    if (isPlaying && !animationIdRef[0]) {
       startTimeRef.current = performance.now();
-      animate();
-    } else if (!isPlaying && animationIdRef.current) {
-      cancelAnimationFrame(animationIdRef.current);
-      animationIdRef.current = null;
+      console.log("[Animation] start", { startAtMs: Math.round(startTimeRef.current) });
+      statusRef.current = new Map();
+      animationIdRef[0] = requestAnimationFrame(animate);
+    } else if (!isPlaying && animationIdRef[0]) {
+      cancelAnimationFrame(animationIdRef[0]);
+      animationIdRef[0] = null;
       gl.clear(gl.COLOR_BUFFER_BIT);
+      console.log("[Animation] stopped by user");
     }
 
     return () => {
-      if (animationIdRef.current) {
-        cancelAnimationFrame(animationIdRef.current);
-        animationIdRef.current = null;
+      if (animationIdRef[0]) {
+        cancelAnimationFrame(animationIdRef[0]);
+        animationIdRef[0] = null;
       }
       window.removeEventListener("resize", resizeCanvas);
-      // Clean up programs
-      programsRef.current.forEach((prog) => {
-        if (prog.program) {
-          gl.deleteProgram(prog.program);
-        }
-      });
+      if (positionBufferRef.current) {
+        gl.deleteBuffer(positionBufferRef.current);
+        positionBufferRef.current = null;
+      }
+      if (glRef.current) {
+        try {
+          disposeSpark(glRef.current);
+        } catch {}
+      }
+      console.log("[Animation] cleanup");
     };
   }, [anchorEl, config, isPlaying, onAnimationComplete]);
 
@@ -573,3 +323,5 @@ export default function GlowAnimation({
     />
   );
 }
+
+

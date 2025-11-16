@@ -9,80 +9,93 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
   IconButton,
-  InputLabel,
-  MenuItem,
-  Select,
   Slider,
   Stack,
   Typography,
 } from "@mui/material";
-
-const PATH_TYPES = [
-  { value: "diagonal-tl-br", label: "Top Left to Bottom Right" },
-  { value: "diagonal-tr-bl", label: "Top Right to Bottom Left" },
-  { value: "horizontal", label: "Horizontal" },
-  { value: "vertical", label: "Vertical" },
-];
+import { VERTEX_LABELS } from "./animation/constants";
 
 export default function ConfigModal({ open, onClose, config, onConfigChange }) {
-  const handleSpeedChange = (event, newValue) => {
-    onConfigChange({ ...config, speed: newValue });
-  };
+  const update = (partial) => onConfigChange({ ...config, ...partial });
 
-  const handleGlowChange = (event, newValue) => {
-    onConfigChange({ ...config, glow: newValue });
-  };
+  // Global handlers
+  const handleAnimationTimeChange = (_e, v) => update({ animationTimeMs: v });
+  const handleGlowRadiusChange = (_e, v) => update({ glowRadius: v });
+  const handleCenterRadiusChange = (_e, v) => update({ centerRadius: v });
+  const handleEndRadiusChange = (_e, v) => update({ endRadius: v });
+  const handleLengthChange = (_e, v) => update({ length: v });
+  const handleEllipseAChange = (_e, v) =>
+    update({ ellipse: { ...(config.ellipse || {}), a: v } });
+  const handleEllipseBChange = (_e, v) =>
+    update({ ellipse: { ...(config.ellipse || {}), b: v } });
+  const handleCameraDistanceChange = (_e, v) => update({ cameraDistance: v });
+  const handleTiltXChange = (_e, v) => update({ viewTiltXDeg: v });
+  const handleTiltYChange = (_e, v) => update({ viewTiltYDeg: v });
+  const handleDepthAmpChange = (_e, v) => update({ depthAmplitude: v });
+  const handleDepthPhaseChange = (_e, v) => update({ depthPhaseDeg: v });
 
-  const handleCenterRadiusChange = (event, newValue) => {
-    onConfigChange({ ...config, centerRadius: newValue });
-  };
-
-  const handleLengthChange = (event, newValue) => {
-    onConfigChange({ ...config, length: newValue });
+  // Path handlers
+  const setPath = (id, patch) => {
+    onConfigChange({
+      ...config,
+      paths: (config.paths || []).map((p) =>
+        p.id === id ? { ...p, ...patch } : p
+      ),
+    });
   };
 
   const handleAddPath = () => {
     const newPath = {
       id: Date.now(),
-      type: "diagonal-tl-br",
-      speed: config.speed,
+      startVertex: "TR",
+      endVertex: "BL",
       delay: 0,
-      glow: config.glow,
-      centerRadius: config.centerRadius,
       enabled: true,
     };
-    onConfigChange({
-      ...config,
-      paths: [...(config.paths || []), newPath],
-    });
+    onConfigChange({ ...config, paths: [...(config.paths || []), newPath] });
   };
 
-  const handlePathChange = (pathId, field, value) => {
+  const handleDeletePath = (id) => {
     onConfigChange({
       ...config,
-      paths: config.paths.map((path) =>
-        path.id === pathId ? { ...path, [field]: value } : path
-      ),
+      paths: (config.paths || []).filter((p) => p.id !== id),
     });
+  };
+  const handleTogglePath = (id) => {
+    const current = (config.paths || []).find((p) => p.id === id);
+    setPath(id, { enabled: !current?.enabled });
   };
 
-  const handleDeletePath = (pathId) => {
-    onConfigChange({
-      ...config,
-      paths: config.paths.filter((path) => path.id !== pathId),
-    });
-  };
-
-  const handleTogglePath = (pathId) => {
-    onConfigChange({
-      ...config,
-      paths: config.paths.map((path) =>
-        path.id === pathId ? { ...path, enabled: !path.enabled } : path
-      ),
-    });
-  };
+  const VertexPicker = ({ value, onChange }) => (
+    <Box display="flex" gap={1} flexWrap="wrap">
+      {VERTEX_LABELS.map((v) => (
+        <Button
+          key={v.id}
+          variant={value === v.id ? "contained" : "outlined"}
+          onClick={() => onChange(v.id)}
+          size="small"
+          sx={{
+            minWidth: 0,
+            px: 1.25,
+            borderColor: value === v.id ? "#FFD700" : "rgba(255, 215, 0, 0.4)",
+            color: value === v.id ? "#000" : "#FFD700",
+            backgroundColor: value === v.id ? "#FFD700" : "transparent",
+            "&:hover": {
+              borderColor: "#FFA500",
+              backgroundColor:
+                value === v.id ? "#FFA500" : "rgba(255, 215, 0, 0.1)",
+            },
+          }}
+        >
+          {v.id}
+          <Typography variant="caption" sx={{ ml: 0.5, opacity: 0.8 }}>
+            {v.label}
+          </Typography>
+        </Button>
+      ))}
+    </Box>
+  );
 
   return (
     <Dialog
@@ -96,9 +109,7 @@ export default function ConfigModal({ open, onClose, config, onConfigChange }) {
           border: "1px solid #FFD700",
           borderRadius: "12px",
           maxHeight: "90vh",
-          "&::-webkit-scrollbar": {
-            display: "none",
-          },
+          "&::-webkit-scrollbar": { display: "none" },
           scrollbarWidth: "none",
           msOverflowStyle: "none",
         },
@@ -117,111 +128,212 @@ export default function ConfigModal({ open, onClose, config, onConfigChange }) {
       <DialogContent
         sx={{
           pt: 3,
-          "&::-webkit-scrollbar": {
-            display: "none",
-          },
+          "&::-webkit-scrollbar": { display: "none" },
           scrollbarWidth: "none",
           msOverflowStyle: "none",
           overflowY: "auto",
         }}
       >
         <Stack spacing={3}>
-          {/* Global Speed Control */}
+          {/* Global Timing/Appearance */}
           <Box>
             <Typography
               gutterBottom
               sx={{ color: "#FFD700", fontWeight: 500, mb: 1 }}
             >
-              Global Speed
+              Animation Time (ms)
             </Typography>
             <Slider
-              value={config.speed || 2.0}
-              onChange={handleSpeedChange}
-              min={0.1}
-              max={10}
-              step={0.1}
+              value={config.animationTimeMs ?? 1200}
+              onChange={handleAnimationTimeChange}
+              min={100}
+              max={10000}
+              step={50}
               valueLabelDisplay="auto"
-              valueLabelFormat={(value) => `${value.toFixed(1)}x`}
             />
           </Box>
 
-          {/* Global Glow Control */}
           <Box>
             <Typography
               gutterBottom
-              variant="subtitle2"
               sx={{ color: "#FFD700", fontWeight: 500, mb: 1 }}
             >
-              Global Glow Intensity
+              Glow Radius (px)
             </Typography>
             <Typography
               variant="caption"
               sx={{ color: "rgba(255, 215, 0, 0.7)", display: "block", mb: 1 }}
             >
-              Controls the glow/halo effect around the circles (0 = no glow, 10
-              = maximum glow)
+              0.9 opacity at circle edge, fading to near 0 at edge
             </Typography>
             <Slider
-              value={config.glow || 3.0}
-              onChange={handleGlowChange}
+              value={config.glowRadius ?? 20}
+              onChange={handleGlowRadiusChange}
               min={0}
-              max={10}
-              step={0.1}
+              max={100}
+              step={1}
               valueLabelDisplay="auto"
             />
           </Box>
 
-          {/* Global Center Radius Control */}
+          {/* Ellipse */}
           <Box>
             <Typography
               gutterBottom
-              variant="subtitle2"
               sx={{ color: "#FFD700", fontWeight: 500, mb: 1 }}
             >
-              Center Radius
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{ color: "rgba(255, 215, 0, 0.7)", display: "block", mb: 1 }}
-            >
-              Controls the radius of circles at the center of the animation
-              (ends taper to 0px)
+              Ellipse a (px)
             </Typography>
             <Slider
-              value={config.centerRadius || 2.0}
+              value={config.ellipse?.a ?? 150}
+              onChange={handleEllipseAChange}
+              min={10}
+              max={600}
+              step={5}
+              valueLabelDisplay="auto"
+            />
+            <Typography
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 1, mt: 1.5 }}
+            >
+              Ellipse b (px)
+            </Typography>
+            <Slider
+              value={config.ellipse?.b ?? 12}
+              onChange={handleEllipseBChange}
+              min={1}
+              max={200}
+              step={1}
+              valueLabelDisplay="auto"
+            />
+          </Box>
+
+          {/* Radii/Length */}
+          <Box>
+            <Typography
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 1 }}
+            >
+              Center Radius (px)
+            </Typography>
+            <Slider
+              value={config.centerRadius ?? 8}
               onChange={handleCenterRadiusChange}
-              min={0.5}
-              max={10}
-              step={0.1}
+              min={0}
+              max={40}
+              step={0.5}
               valueLabelDisplay="auto"
-              valueLabelFormat={(value) => `${value.toFixed(1)}px`}
+            />
+            <Typography
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 1, mt: 1.5 }}
+            >
+              End Radius (px)
+            </Typography>
+            <Slider
+              value={config.endRadius ?? 0}
+              onChange={handleEndRadiusChange}
+              min={0}
+              max={40}
+              step={0.5}
+              valueLabelDisplay="auto"
             />
           </Box>
 
-          {/* Global Length Control */}
           <Box>
             <Typography
               gutterBottom
-              variant="subtitle2"
               sx={{ color: "#FFD700", fontWeight: 500, mb: 1 }}
             >
-              Line Length
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{ color: "rgba(255, 215, 0, 0.7)", display: "block", mb: 1 }}
-            >
-              Controls the length of the line segment formed by circles
-              (default: 200px)
+              Line Length (px)
             </Typography>
             <Slider
-              value={config.length || 200.0}
+              value={config.length ?? 300}
               onChange={handleLengthChange}
               min={50}
-              max={500}
+              max={800}
               step={10}
               valueLabelDisplay="auto"
-              valueLabelFormat={(value) => `${value.toFixed(0)}px`}
+            />
+          </Box>
+
+          {/* Camera & Depth */}
+          <Box>
+            <Typography
+              variant="h6"
+              sx={{ color: "#FFD700", fontWeight: 600, mb: 1 }}
+            >
+              Camera & Depth
+            </Typography>
+            <Typography
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 1 }}
+            >
+              Camera Distance (px)
+            </Typography>
+            <Slider
+              value={config.cameraDistance ?? 4000}
+              onChange={handleCameraDistanceChange}
+              min={500}
+              max={8000}
+              step={50}
+              valueLabelDisplay="auto"
+            />
+            <Typography
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 1, mt: 1.5 }}
+            >
+              Camera Tilt X (deg)
+            </Typography>
+            <Slider
+              value={config.viewTiltXDeg ?? 0}
+              onChange={handleTiltXChange}
+              min={-60}
+              max={60}
+              step={1}
+              valueLabelDisplay="auto"
+            />
+            <Typography
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 1, mt: 1.5 }}
+            >
+              Camera Tilt Y (deg)
+            </Typography>
+            <Slider
+              value={config.viewTiltYDeg ?? 0}
+              onChange={handleTiltYChange}
+              min={-60}
+              max={60}
+              step={1}
+              valueLabelDisplay="auto"
+            />
+            <Typography
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 1, mt: 1.5 }}
+            >
+              Depth Amplitude (px)
+            </Typography>
+            <Slider
+              value={config.depthAmplitude ?? 100}
+              onChange={handleDepthAmpChange}
+              min={0}
+              max={400}
+              step={5}
+              valueLabelDisplay="auto"
+            />
+            <Typography
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 1, mt: 1.5 }}
+            >
+              Depth Phase (deg)
+            </Typography>
+            <Slider
+              value={config.depthPhaseDeg ?? 0}
+              onChange={handleDepthPhaseChange}
+              min={-180}
+              max={180}
+              step={1}
+              valueLabelDisplay="auto"
             />
           </Box>
 
@@ -248,9 +360,7 @@ export default function ConfigModal({ open, onClose, config, onConfigChange }) {
                   backgroundColor: "#FFD700",
                   color: "#000000",
                   fontWeight: 600,
-                  "&:hover": {
-                    backgroundColor: "#FFA500",
-                  },
+                  "&:hover": { backgroundColor: "#FFA500" },
                 }}
               >
                 Add Path
@@ -270,9 +380,7 @@ export default function ConfigModal({ open, onClose, config, onConfigChange }) {
                       ? "rgba(255, 215, 0, 0.05)"
                       : "rgba(255, 215, 0, 0.02)",
                     transition: "all 0.2s ease",
-                    "&:hover": {
-                      borderColor: "rgba(255, 215, 0, 0.5)",
-                    },
+                    "&:hover": { borderColor: "rgba(255, 215, 0, 0.5)" },
                   }}
                 >
                   <Box
@@ -282,10 +390,9 @@ export default function ConfigModal({ open, onClose, config, onConfigChange }) {
                     mb={2}
                   >
                     <Chip
-                      label={
-                        PATH_TYPES.find((t) => t.value === path.type)?.label ||
-                        path.type
-                      }
+                      label={`Start ${path.startVertex || "TR"} → End ${
+                        path.endVertex || "BL"
+                      }`}
                       onClick={() => handleTogglePath(path.id)}
                       sx={{
                         backgroundColor: path.enabled
@@ -321,76 +428,30 @@ export default function ConfigModal({ open, onClose, config, onConfigChange }) {
                   </Box>
 
                   <Stack spacing={2}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel sx={{ color: "#FFD700" }}>
-                        Path Type
-                      </InputLabel>
-                      <Select
-                        value={path.type}
-                        label="Path Type"
-                        onChange={(e) =>
-                          handlePathChange(path.id, "type", e.target.value)
-                        }
-                        sx={{
-                          color: "#FFD700",
-                          "& .MuiOutlinedInput-notchedOutline": {
-                            borderColor: "rgba(255, 215, 0, 0.5)",
-                          },
-                          "&:hover .MuiOutlinedInput-notchedOutline": {
-                            borderColor: "#FFD700",
-                          },
-                          "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                            borderColor: "#FFD700",
-                          },
-                          "& .MuiSvgIcon-root": {
-                            color: "#FFD700",
-                          },
-                        }}
-                      >
-                        {PATH_TYPES.map((type) => (
-                          <MenuItem
-                            key={type.value}
-                            value={type.value}
-                            sx={{
-                              color: "#FFD700",
-                              "&:hover": {
-                                backgroundColor: "rgba(255, 215, 0, 0.1)",
-                              },
-                              "&.Mui-selected": {
-                                backgroundColor: "rgba(255, 215, 0, 0.2)",
-                                "&:hover": {
-                                  backgroundColor: "rgba(255, 215, 0, 0.3)",
-                                },
-                              },
-                            }}
-                          >
-                            {type.label}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-
                     <Box>
                       <Typography
                         variant="body2"
                         gutterBottom
                         sx={{ color: "#FFD700", fontWeight: 500 }}
                       >
-                        Speed:{" "}
-                        {path.speed?.toFixed(1) ||
-                          config.speed?.toFixed(1) ||
-                          "2.0"}
-                        x
+                        Start Vertex
                       </Typography>
-                      <Slider
-                        value={path.speed || config.speed || 2.0}
-                        onChange={(e, newValue) =>
-                          handlePathChange(path.id, "speed", newValue)
-                        }
-                        min={0.1}
-                        max={10}
-                        step={0.1}
-                        size="small"
+                      <VertexPicker
+                        value={path.startVertex || "TR"}
+                        onChange={(v) => setPath(path.id, { startVertex: v })}
+                      />
+                    </Box>
+                    <Box>
+                      <Typography
+                        variant="body2"
+                        gutterBottom
+                        sx={{ color: "#FFD700", fontWeight: 500 }}
+                      >
+                        End Vertex
+                      </Typography>
+                      <VertexPicker
+                        value={path.endVertex || "BL"}
+                        onChange={(v) => setPath(path.id, { endVertex: v })}
                       />
                     </Box>
 
@@ -400,68 +461,199 @@ export default function ConfigModal({ open, onClose, config, onConfigChange }) {
                         gutterBottom
                         sx={{ color: "#FFD700", fontWeight: 500 }}
                       >
-                        Delay: {path.delay?.toFixed(2) || "0.00"}s
+                        Delay (ms or s if ≤ 20)
                       </Typography>
                       <Slider
                         value={path.delay || 0}
-                        onChange={(e, newValue) =>
-                          handlePathChange(path.id, "delay", newValue)
-                        }
+                        onChange={(_e, v) => setPath(path.id, { delay: v })}
                         min={0}
-                        max={5}
-                        step={0.1}
-                        size="small"
-                      />
-                    </Box>
-
-                    <Box>
-                      <Typography
-                        variant="body2"
-                        gutterBottom
-                        sx={{ color: "#FFD700", fontWeight: 500 }}
-                      >
-                        Glow:{" "}
-                        {path.glow?.toFixed(1) ||
-                          config.glow?.toFixed(1) ||
-                          "3.0"}
-                      </Typography>
-                      <Slider
-                        value={path.glow || config.glow || 3.0}
-                        onChange={(e, newValue) =>
-                          handlePathChange(path.id, "glow", newValue)
-                        }
-                        min={0}
-                        max={10}
-                        step={0.1}
-                        size="small"
-                      />
-                    </Box>
-
-                    <Box>
-                      <Typography
-                        variant="body2"
-                        gutterBottom
-                        sx={{ color: "#FFD700", fontWeight: 500 }}
-                      >
-                        Center Radius:{" "}
-                        {(
-                          path.centerRadius ||
-                          config.centerRadius ||
-                          2.0
-                        ).toFixed(1)}
-                        px
-                      </Typography>
-                      <Slider
-                        value={path.centerRadius || config.centerRadius || 2.0}
-                        onChange={(e, newValue) =>
-                          handlePathChange(path.id, "centerRadius", newValue)
-                        }
-                        min={0.5}
-                        max={10}
-                        step={0.1}
+                        max={5000}
+                        step={50}
                         size="small"
                         valueLabelDisplay="auto"
-                        valueLabelFormat={(value) => `${value.toFixed(1)}px`}
+                      />
+                    </Box>
+
+                    <Box>
+                      <Typography
+                        variant="body2"
+                        gutterBottom
+                        sx={{ color: "#FFD700", fontWeight: 500 }}
+                      >
+                        Override Animation Time (ms)
+                      </Typography>
+                      <Slider
+                        value={
+                          path.animationTimeMs ?? config.animationTimeMs ?? 1200
+                        }
+                        onChange={(_e, v) =>
+                          setPath(path.id, { animationTimeMs: v })
+                        }
+                        min={100}
+                        max={10000}
+                        step={50}
+                        size="small"
+                        valueLabelDisplay="auto"
+                      />
+                    </Box>
+
+                    {/* Ellipse overrides */}
+                    <Box>
+                      <Typography
+                        variant="body2"
+                        gutterBottom
+                        sx={{ color: "#FFD700", fontWeight: 500 }}
+                      >
+                        Ellipse a (px)
+                      </Typography>
+                      <Slider
+                        value={path.ellipse?.a ?? config.ellipse?.a ?? 150}
+                        onChange={(_e, v) =>
+                          setPath(path.id, {
+                            ellipse: { ...(path.ellipse || {}), a: v },
+                          })
+                        }
+                        min={10}
+                        max={600}
+                        step={5}
+                        size="small"
+                        valueLabelDisplay="auto"
+                      />
+                      <Typography
+                        variant="body2"
+                        gutterBottom
+                        sx={{ color: "#FFD700", fontWeight: 500, mt: 1 }}
+                      >
+                        Ellipse b (px)
+                      </Typography>
+                      <Slider
+                        value={path.ellipse?.b ?? config.ellipse?.b ?? 12}
+                        onChange={(_e, v) =>
+                          setPath(path.id, {
+                            ellipse: { ...(path.ellipse || {}), b: v },
+                          })
+                        }
+                        min={1}
+                        max={200}
+                        step={1}
+                        size="small"
+                        valueLabelDisplay="auto"
+                      />
+                      <Typography
+                        variant="body2"
+                        gutterBottom
+                        sx={{ color: "#FFD700", fontWeight: 500, mt: 1 }}
+                      >
+                        Ellipse Rotation (deg)
+                      </Typography>
+                      <Slider
+                        value={path.ellipseRotationDeg ?? 0}
+                        onChange={(_e, v) =>
+                          setPath(path.id, { ellipseRotationDeg: v })
+                        }
+                        min={-180}
+                        max={180}
+                        step={1}
+                        size="small"
+                        valueLabelDisplay="auto"
+                      />
+                    </Box>
+
+                    {/* Camera & depth overrides */}
+                    <Box>
+                      <Typography
+                        variant="body2"
+                        gutterBottom
+                        sx={{ color: "#FFD700", fontWeight: 500 }}
+                      >
+                        Camera Distance (px)
+                      </Typography>
+                      <Slider
+                        value={
+                          path.cameraDistance ?? config.cameraDistance ?? 4000
+                        }
+                        onChange={(_e, v) =>
+                          setPath(path.id, { cameraDistance: v })
+                        }
+                        min={500}
+                        max={8000}
+                        step={50}
+                        size="small"
+                        valueLabelDisplay="auto"
+                      />
+                      <Typography
+                        variant="body2"
+                        gutterBottom
+                        sx={{ color: "#FFD700", fontWeight: 500, mt: 1 }}
+                      >
+                        Camera Tilt X (deg)
+                      </Typography>
+                      <Slider
+                        value={path.viewTiltXDeg ?? config.viewTiltXDeg ?? 0}
+                        onChange={(_e, v) =>
+                          setPath(path.id, { viewTiltXDeg: v })
+                        }
+                        min={-60}
+                        max={60}
+                        step={1}
+                        size="small"
+                        valueLabelDisplay="auto"
+                      />
+                      <Typography
+                        variant="body2"
+                        gutterBottom
+                        sx={{ color: "#FFD700", fontWeight: 500, mt: 1 }}
+                      >
+                        Camera Tilt Y (deg)
+                      </Typography>
+                      <Slider
+                        value={path.viewTiltYDeg ?? config.viewTiltYDeg ?? 0}
+                        onChange={(_e, v) =>
+                          setPath(path.id, { viewTiltYDeg: v })
+                        }
+                        min={-60}
+                        max={60}
+                        step={1}
+                        size="small"
+                        valueLabelDisplay="auto"
+                      />
+                      <Typography
+                        variant="body2"
+                        gutterBottom
+                        sx={{ color: "#FFD700", fontWeight: 500, mt: 1 }}
+                      >
+                        Depth Amplitude (px)
+                      </Typography>
+                      <Slider
+                        value={
+                          path.depthAmplitude ?? config.depthAmplitude ?? 100
+                        }
+                        onChange={(_e, v) =>
+                          setPath(path.id, { depthAmplitude: v })
+                        }
+                        min={0}
+                        max={400}
+                        step={5}
+                        size="small"
+                        valueLabelDisplay="auto"
+                      />
+                      <Typography
+                        variant="body2"
+                        gutterBottom
+                        sx={{ color: "#FFD700", fontWeight: 500, mt: 1 }}
+                      >
+                        Depth Phase (deg)
+                      </Typography>
+                      <Slider
+                        value={path.depthPhaseDeg ?? config.depthPhaseDeg ?? 0}
+                        onChange={(_e, v) =>
+                          setPath(path.id, { depthPhaseDeg: v })
+                        }
+                        min={-180}
+                        max={180}
+                        step={1}
+                        size="small"
+                        valueLabelDisplay="auto"
                       />
                     </Box>
                   </Stack>
@@ -494,9 +686,7 @@ export default function ConfigModal({ open, onClose, config, onConfigChange }) {
             backgroundColor: "#FFD700",
             color: "#000000",
             fontWeight: 600,
-            "&:hover": {
-              backgroundColor: "#FFA500",
-            },
+            "&:hover": { backgroundColor: "#FFA500" },
           }}
         >
           Close
