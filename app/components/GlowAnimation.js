@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { drawSpark, disposeSpark } from "./animation/Spark";
-import { DEFAULT_CONFIG } from "./animation/constants";
-import { getAngleForVertex } from "./animation/utils";
-import { CAMERA_DISTANCE } from "./animation/constants";
 import useFps from "../hooks/useFps";
+import { disposeSpark, drawSpark } from "./animation/Spark";
+import { CAMERA_DISTANCE, DEFAULT_CONFIG } from "./animation/constants";
+import { getAngleForVertex } from "./animation/utils";
 
 export default function GlowAnimation({
   anchorEl,
@@ -22,7 +21,8 @@ export default function GlowAnimation({
   const accumulatedSecRef = useRef(0);
   useFps({ sampleSize: 90 });
 
-  const delayToSeconds = (v) => (typeof v === "number" && !Number.isNaN(v) ? (v > 20 ? v / 1000 : v) : 0);
+  const delayToSeconds = (v) =>
+    typeof v === "number" && !Number.isNaN(v) ? (v > 20 ? v / 1000 : v) : 0;
   const degToRad = (d) => (d * Math.PI) / 180;
 
   const cornerPoint = (vertex, rect) => {
@@ -40,13 +40,29 @@ export default function GlowAnimation({
     }
   };
 
-  const computePathLength = (a, b, rotAngle, rotExtra, thetaStart, thetaEnd, centerX, centerY, camDist, tiltX, tiltY, depthAmp, depthPhase) => {
+  const computePathLength = (
+    a,
+    b,
+    rotAngle,
+    rotExtra,
+    thetaStart,
+    thetaEnd,
+    centerX,
+    centerY,
+    camDist,
+    tiltX,
+    tiltY,
+    depthAmp,
+    depthPhase
+  ) => {
     const SAMPLES = 128;
     const baseRot = rotAngle + rotExtra;
     const c = Math.cos(baseRot);
     const s = Math.sin(baseRot);
-    const cx = Math.cos(tiltX), sx = Math.sin(tiltX);
-    const cy = Math.cos(tiltY), sy = Math.sin(tiltY);
+    const cx = Math.cos(tiltX),
+      sx = Math.sin(tiltX);
+    const cy = Math.cos(tiltY),
+      sy = Math.sin(tiltY);
 
     const project = (lx, ly, th) => {
       const rx = c * lx - s * ly;
@@ -63,7 +79,11 @@ export default function GlowAnimation({
       return [px, py];
     };
 
-    let [px0, py0] = project(a * Math.cos(thetaStart), b * Math.sin(thetaStart), thetaStart);
+    let [px0, py0] = project(
+      a * Math.cos(thetaStart),
+      b * Math.sin(thetaStart),
+      thetaStart
+    );
     let total = 0;
     for (let i = 1; i <= SAMPLES; i++) {
       const t = i / SAMPLES;
@@ -80,7 +100,10 @@ export default function GlowAnimation({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const gl = canvas.getContext("webgl", { alpha: true, premultipliedAlpha: false });
+    const gl = canvas.getContext("webgl", {
+      alpha: true,
+      premultipliedAlpha: false,
+    });
     if (!gl) {
       console.error("WebGL not supported");
       return;
@@ -101,12 +124,18 @@ export default function GlowAnimation({
     gl.bufferData(
       gl.ARRAY_BUFFER,
       new Float32Array([
-        0, 0,
-        canvas.width, 0,
-        0, canvas.height,
-        0, canvas.height,
-        canvas.width, 0,
-        canvas.width, canvas.height,
+        0,
+        0,
+        canvas.width,
+        0,
+        0,
+        canvas.height,
+        0,
+        canvas.height,
+        canvas.width,
+        0,
+        canvas.width,
+        canvas.height,
       ]),
       gl.STATIC_DRAW
     );
@@ -145,7 +174,10 @@ export default function GlowAnimation({
         const ellipseCfg = p.ellipse || cfg.ellipse;
         const startDir = getAngleForVertex(p.startVertex);
         const endDir = getAngleForVertex(p.endVertex);
-        let delta = ((endDir - startDir + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+        let delta =
+          ((((endDir - startDir + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) %
+            (2 * Math.PI)) -
+          Math.PI;
         let dir = Math.sign(delta) || 1;
         const thetaStartLocal = 0.0;
         const thetaEndLocal = Math.abs(delta || Math.PI);
@@ -158,12 +190,21 @@ export default function GlowAnimation({
         const depthPhase = degToRad(p.depthPhaseDeg ?? cfg.depthPhaseDeg ?? 0);
         const rotExtra = degToRad(p.ellipseRotationDeg ?? 0);
 
-        let autoA = ellipseCfg?.a ?? 150;
+        let autoA = ellipseCfg?.a;
         let bVal = ellipseCfg?.b ?? 0.0;
-        if (rect) {
-          const [cx, cy] = [centerX, centerY];
-          const [sx, sy] = cornerPoint(p.startVertex, rect);
-          autoA = Math.hypot(sx - cx, sy - cy);
+        if (rect && autoA === undefined) {
+          // Default: a = 10px + (diagonal / 2)
+          const diagonal = Math.hypot(rect.width, rect.height);
+          autoA = 10 + diagonal / 2;
+          if (cfg.debug) {
+            console.log("[AutoA Calculation]", {
+              rectSize: `${rect.width}x${rect.height}`,
+              diagonal: diagonal.toFixed(2),
+              calculatedA: autoA.toFixed(2),
+            });
+          }
+        } else if (autoA === undefined) {
+          autoA = 150; // fallback if no rect and no config
         }
 
         const prev = pathMetricsRef.current.get(p.id);
@@ -214,17 +255,24 @@ export default function GlowAnimation({
             depthPhase,
             rotExtra,
           });
-          if (cfg.debug) console.log("[SparkMetrics]", p.id, { a: autoA, b: bVal, pathLength });
+          if (cfg.debug)
+            console.log("[SparkMetrics]", p.id, {
+              a: autoA,
+              b: bVal,
+              pathLength,
+            });
         }
       }
 
       let allComplete = activePaths.length > 0;
-      const animationTimeMsGlobal = cfg.animationTimeMs ?? DEFAULT_CONFIG.animationTimeMs;
+      const animationTimeMsGlobal =
+        cfg.animationTimeMs ?? DEFAULT_CONFIG.animationTimeMs;
 
       for (const p of activePaths) {
         const delayRaw = p.delay || 0;
         const delaySec = delayToSeconds(delayRaw);
-        const durationSec = (p.animationTimeMs ?? animationTimeMsGlobal) / 1000.0;
+        const durationSec =
+          (p.animationTimeMs ?? animationTimeMsGlobal) / 1000.0;
         const elapsed = Math.max(0, currentTimeSec - delaySec);
 
         const metrics = pathMetricsRef.current.get(p.id);
@@ -236,7 +284,8 @@ export default function GlowAnimation({
         const totalSpan = 1.0 + segmentParam + overshoot;
 
         // Scale phase so that full animation (including overshoot) fits into durationSec
-        const scaledPhase = (elapsed / Math.max(durationSec, 0.0001)) * totalSpan;
+        const scaledPhase =
+          (elapsed / Math.max(durationSec, 0.0001)) * totalSpan;
         const completeThreshold = totalSpan + fadeWindow;
 
         if (scaledPhase < completeThreshold) {
@@ -254,17 +303,16 @@ export default function GlowAnimation({
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBufferRef.current);
 
-      activePaths.forEach((path) => {
+      for (const path of activePaths) {
         const ellipseCfg = path.ellipse || cfg.ellipse;
-        let autoA = ellipseCfg?.a ?? 150;
+        let autoA = ellipseCfg?.a;
         let bVal = ellipseCfg?.b ?? 0.0;
-        if (anchorEl?.getBoundingClientRect) {
-          const rect = anchorEl.getBoundingClientRect();
-          const centerX = rect.left + rect.width / 2;
-          const centerY = rect.top + rect.height / 2;
-          const [sx, sy] = cornerPoint(path.startVertex, rect);
-          autoA = Math.hypot(sx - centerX, sy - centerY);
-          bVal = ellipseCfg?.b ?? 0.0;
+        if (rect && autoA === undefined) {
+          // Default: a = 10px + (diagonal / 2)
+          const diagonal = Math.hypot(rect.width, rect.height);
+          autoA = 10 + diagonal / 2;
+        } else if (autoA === undefined) {
+          autoA = 150; // fallback if no rect and no config
         }
         const pathWithAutoEllipse = {
           ...path,
@@ -278,7 +326,7 @@ export default function GlowAnimation({
           globalConfig: cfg,
           pathConfig: pathWithAutoEllipse,
         });
-      });
+      }
 
       animationIdRef[0] = requestAnimationFrame(animate);
     };
@@ -319,5 +367,3 @@ export default function GlowAnimation({
     />
   );
 }
-
-

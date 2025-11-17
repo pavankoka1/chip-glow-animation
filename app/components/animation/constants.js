@@ -9,7 +9,7 @@ export const VERTEX_LABELS = [
 export const DEFAULT_CONFIG = {
   animationTimeMs: 1200,
   glowRadius: 20,
-  ellipse: { a: 150, b: 12 }, // semi-major, semi-minor in px
+  ellipse: { b: 12 }, // a will be auto-calculated as 10 + (diagonal / 2), b is semi-minor in px
   centerRadius: 8,
   endRadius: 0,
   length: 300,

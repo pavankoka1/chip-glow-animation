@@ -16,7 +16,7 @@ export default function Home() {
   const [config, setConfig] = useState({
     animationTimeMs: 500,
     glowRadius: 30,
-    ellipse: { a: 200, b: 4 },
+    ellipse: { b: 4 }, // a will be auto-calculated as 10 + (diagonal / 2)
     centerRadius: 10,
     endRadius: 5,
     length: 300,
