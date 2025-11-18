@@ -130,7 +130,8 @@ export default function GlowAnimation({
     tiltX,
     tiltY,
     depthAmp,
-    depthPhase
+    depthPhase,
+    ellipseTiltDeg
   ) => {
     const SAMPLES = 128;
     const baseRot = rotAngle + rotExtra;
@@ -140,14 +141,67 @@ export default function GlowAnimation({
       sx = Math.sin(tiltX);
     const cy = Math.cos(tiltY),
       sy = Math.sin(tiltY);
+    const ellipseTilt = degToRad(ellipseTiltDeg);
 
     const project = (lx, ly, th) => {
       const rx = c * lx - s * ly;
       const ry = s * lx + c * ly;
       const rz = depthAmp * Math.sin(th + depthPhase);
-      const tx = rx;
-      const ty = cx * ry - sx * rz;
-      const tz = sx * ry + cx * rz;
+      let p = [rx, ry, rz];
+
+      // Apply ellipse plane tilt: rotate around the major axis
+      if (Math.abs(ellipseTilt) > 0.0001) {
+        // Major axis direction (unit vector in XY plane)
+        const majorAxis = [c, s, 0];
+        const axisLen = Math.hypot(majorAxis[0], majorAxis[1], majorAxis[2]);
+        if (axisLen > 0.0001) {
+          const normalizedAxis = [
+            majorAxis[0] / axisLen,
+            majorAxis[1] / axisLen,
+            majorAxis[2] / axisLen,
+          ];
+
+          // Rotation around major axis using Rodrigues' rotation formula
+          const ct = Math.cos(ellipseTilt);
+          const st = Math.sin(ellipseTilt);
+          const oneMinusCt = 1 - ct;
+
+          // Rotation matrix components
+          const m00 = ct + normalizedAxis[0] * normalizedAxis[0] * oneMinusCt;
+          const m01 =
+            normalizedAxis[0] * normalizedAxis[1] * oneMinusCt -
+            normalizedAxis[2] * st;
+          const m02 =
+            normalizedAxis[0] * normalizedAxis[2] * oneMinusCt +
+            normalizedAxis[1] * st;
+          const m10 =
+            normalizedAxis[1] * normalizedAxis[0] * oneMinusCt +
+            normalizedAxis[2] * st;
+          const m11 = ct + normalizedAxis[1] * normalizedAxis[1] * oneMinusCt;
+          const m12 =
+            normalizedAxis[1] * normalizedAxis[2] * oneMinusCt -
+            normalizedAxis[0] * st;
+          const m20 =
+            normalizedAxis[2] * normalizedAxis[0] * oneMinusCt -
+            normalizedAxis[1] * st;
+          const m21 =
+            normalizedAxis[2] * normalizedAxis[1] * oneMinusCt +
+            normalizedAxis[0] * st;
+          const m22 = ct + normalizedAxis[2] * normalizedAxis[2] * oneMinusCt;
+
+          // Apply rotation
+          p = [
+            m00 * p[0] + m01 * p[1] + m02 * p[2],
+            m10 * p[0] + m11 * p[1] + m12 * p[2],
+            m20 * p[0] + m21 * p[1] + m22 * p[2],
+          ];
+        }
+      }
+
+      // Apply camera tilt: rotate around X then around Y
+      const tx = p[0];
+      const ty = cx * p[1] - sx * p[2];
+      const tz = sx * p[1] + cx * p[2];
       const ux = cy * tx + sy * tz;
       const uy = ty;
       const uz = -sy * tx + cy * tz;
@@ -268,13 +322,14 @@ export default function GlowAnimation({
         const depthAmp = p.depthAmplitude ?? cfg.depthAmplitude ?? 0;
         const depthPhase = degToRad(p.depthPhaseDeg ?? cfg.depthPhaseDeg ?? 0);
         const rotExtra = degToRad(p.ellipseRotationDeg ?? 0);
+        const ellipseTiltDeg = p.ellipseTiltDeg ?? cfg.ellipseTiltDeg ?? 0;
 
         let autoA = ellipseCfg?.a;
         let bVal = ellipseCfg?.b ?? 0.0;
         if (rect && autoA === undefined) {
           // Default: a = 10px + (diagonal / 2)
           const diagonal = Math.hypot(rect.width, rect.height);
-          autoA = 10 + diagonal / 2;
+          autoA = diagonal / 2;
           if (cfg.debug) {
             console.log("[AutoA Calculation]", {
               rectSize: `${rect.width}x${rect.height}`,
@@ -301,7 +356,8 @@ export default function GlowAnimation({
           prev.tiltY !== tiltY ||
           prev.depthAmp !== depthAmp ||
           prev.depthPhase !== depthPhase ||
-          prev.rotExtra !== rotExtra
+          prev.rotExtra !== rotExtra ||
+          prev.ellipseTiltDeg !== ellipseTiltDeg
         ) {
           const pathLength = computePathLength(
             autoA,
@@ -316,7 +372,8 @@ export default function GlowAnimation({
             tiltX,
             tiltY,
             depthAmp,
-            depthPhase
+            depthPhase,
+            ellipseTiltDeg
           );
           pathMetricsRef.current.set(p.id, {
             pathLength,
@@ -333,6 +390,7 @@ export default function GlowAnimation({
             depthAmp,
             depthPhase,
             rotExtra,
+            ellipseTiltDeg,
           });
           if (cfg.debug)
             console.log("[SparkMetrics]", p.id, {

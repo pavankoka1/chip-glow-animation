@@ -18,6 +18,7 @@ export const DEFAULT_CONFIG = {
   viewTiltYDeg: 0,  // camera yaw (deg), rotates around Y
   depthAmplitude: 0, // default no depth to avoid diagonal deviation
   depthPhaseDeg: 0,    // phase shift (deg) for depth oscillation
+  ellipseTiltDeg: 0,   // ellipse plane tilt (deg), rotates around major axis (180° reverses animation)
   overshoot: 0.08,
   fadeWindow: 0.08,
   debug: false,

@@ -43,6 +43,7 @@ uniform mediump float u_depthPhase;        // depth phase (radians)
 uniform mediump float u_overshoot;         // extra phase beyond 1.0 (phase units)
 uniform mediump float u_fadeWindow;        // fade window in phase after tail end
 uniform mediump float u_easedNormalizedTime; // eased normalized time (0.0 to 1.0) from JS
+uniform mediump float u_ellipseTiltDeg;    // ellipse plane tilt (deg), rotates around major axis
 varying vec2 v_position;
 
 vec2 project3D(vec3 pos3D) {
@@ -60,7 +61,44 @@ vec3 ellipsePositionLocal(float thetaLocal) {
   vec2 rotated = vec2(c * x - s * y, s * x + c * y);
   float z = u_depthAmp * sin(thetaLocal + u_depthPhase);
   vec3 p = vec3(rotated, z);
-  // Tilt around X then around Y
+  
+  // Apply ellipse plane tilt: rotate around the major axis (perpendicular to ellipse plane)
+  // The major axis direction after base rotation is (cos(baseRot), sin(baseRot), 0)
+  float ellipseTilt = u_ellipseTiltDeg * 3.141592653589793 / 180.0; // convert deg to rad
+  if (abs(ellipseTilt) > 0.0001) {
+    // Major axis direction (unit vector in XY plane)
+    vec3 majorAxis = vec3(c, s, 0.0);
+    // Normalize (should already be unit, but be safe)
+    float axisLen = length(majorAxis);
+    if (axisLen > 0.0001) {
+      majorAxis = majorAxis / axisLen;
+    }
+    
+    // Rotation around major axis using Rodrigues' rotation formula
+    float ct = cos(ellipseTilt);
+    float st = sin(ellipseTilt);
+    float oneMinusCt = 1.0 - ct;
+    
+    // Rotation matrix components
+    float m00 = ct + majorAxis.x * majorAxis.x * oneMinusCt;
+    float m01 = majorAxis.x * majorAxis.y * oneMinusCt - majorAxis.z * st;
+    float m02 = majorAxis.x * majorAxis.z * oneMinusCt + majorAxis.y * st;
+    float m10 = majorAxis.y * majorAxis.x * oneMinusCt + majorAxis.z * st;
+    float m11 = ct + majorAxis.y * majorAxis.y * oneMinusCt;
+    float m12 = majorAxis.y * majorAxis.z * oneMinusCt - majorAxis.x * st;
+    float m20 = majorAxis.z * majorAxis.x * oneMinusCt - majorAxis.y * st;
+    float m21 = majorAxis.z * majorAxis.y * oneMinusCt + majorAxis.x * st;
+    float m22 = ct + majorAxis.z * majorAxis.z * oneMinusCt;
+    
+    // Apply rotation
+    p = vec3(
+      m00 * p.x + m01 * p.y + m02 * p.z,
+      m10 * p.x + m11 * p.y + m12 * p.z,
+      m20 * p.x + m21 * p.y + m22 * p.z
+    );
+  }
+  
+  // Apply camera tilt: rotate around X then around Y
   float cx = cos(u_tiltX), sx = sin(u_tiltX);
   float cy = cos(u_tiltY), sy = sin(u_tiltY);
   // rotate X

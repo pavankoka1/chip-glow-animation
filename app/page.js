@@ -33,6 +33,7 @@ export default function Home() {
         endVertex: "TL",
         delay: 0,
         length: 100,
+        ellipseTiltDeg: 20,
         enabled: true,
       },
       {
@@ -41,6 +42,7 @@ export default function Home() {
         endVertex: "TR",
         delay: 300,
         length: 100,
+        ellipseTiltDeg: 0,
         enabled: true,
       },
       {

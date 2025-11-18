@@ -68,7 +68,11 @@ function getProgramBundle(gl) {
     depthPhaseLocation: gl.getUniformLocation(program, "u_depthPhase"),
     overshootLocation: gl.getUniformLocation(program, "u_overshoot"),
     fadeWindowLocation: gl.getUniformLocation(program, "u_fadeWindow"),
-    easedNormalizedTimeLocation: gl.getUniformLocation(program, "u_easedNormalizedTime"),
+    easedNormalizedTimeLocation: gl.getUniformLocation(
+      program,
+      "u_easedNormalizedTime"
+    ),
+    ellipseTiltDegLocation: gl.getUniformLocation(program, "u_ellipseTiltDeg"),
   };
   bundle = { program, attribs, uniforms };
   programCache.set(gl, bundle);
@@ -146,6 +150,10 @@ export function drawSpark({
       pathConfig.fadeWindow,
       globalConfig.fadeWindow ?? 0.08
     ),
+    ellipseTiltDeg: resolveNumber(
+      pathConfig.ellipseTiltDeg,
+      globalConfig.ellipseTiltDeg ?? 0
+    ),
   };
 
   const startDir = getAngleForVertex(pathConfig.startVertex);
@@ -191,6 +199,7 @@ export function drawSpark({
   gl.uniform1f(u.overshootLocation, merged.overshoot);
   gl.uniform1f(u.fadeWindowLocation, merged.fadeWindow);
   gl.uniform1f(u.easedNormalizedTimeLocation, easedNormalizedTime);
+  gl.uniform1f(u.ellipseTiltDegLocation, merged.ellipseTiltDeg);
 
   gl.enableVertexAttribArray(attribs.positionLocation);
   gl.vertexAttribPointer(attribs.positionLocation, 2, gl.FLOAT, false, 0, 0);
