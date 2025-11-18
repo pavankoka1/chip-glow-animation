@@ -50,8 +50,8 @@ function getProgramBundle(gl) {
     timeLocation: gl.getUniformLocation(program, "u_time"),
     delayLocation: gl.getUniformLocation(program, "u_delay"),
     animationTimeLocation: gl.getUniformLocation(program, "u_animationTime"),
-    centerRadiusLocation: gl.getUniformLocation(program, "u_centerRadius"),
-    endRadiusLocation: gl.getUniformLocation(program, "u_endRadius"),
+    headRadiusLocation: gl.getUniformLocation(program, "u_headRadius"),
+    tailRadiusLocation: gl.getUniformLocation(program, "u_tailRadius"),
     glowRadiusLocation: gl.getUniformLocation(program, "u_glowRadius"),
     cameraDistanceLocation: gl.getUniformLocation(program, "u_cameraDistance"),
     lineLengthLocation: gl.getUniformLocation(program, "u_lineLength"),
@@ -73,6 +73,8 @@ function getProgramBundle(gl) {
       "u_easedNormalizedTime"
     ),
     ellipseTiltDegLocation: gl.getUniformLocation(program, "u_ellipseTiltDeg"),
+    sparkColorLocation: gl.getUniformLocation(program, "u_sparkColor"),
+    glowColorLocation: gl.getUniformLocation(program, "u_glowColor"),
   };
   bundle = { program, attribs, uniforms };
   programCache.set(gl, bundle);
@@ -95,6 +97,20 @@ function degToRad(d) {
   return (d * Math.PI) / 180;
 }
 
+// Convert hex color to RGB array [r, g, b] in 0-1 range
+function hexToRgb(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) {
+    // Default to white if invalid
+    return [1.0, 1.0, 1.0];
+  }
+  return [
+    parseInt(result[1], 16) / 255.0,
+    parseInt(result[2], 16) / 255.0,
+    parseInt(result[3], 16) / 255.0,
+  ];
+}
+
 export function drawSpark({
   gl,
   canvas,
@@ -113,11 +129,14 @@ export function drawSpark({
       globalConfig.animationTimeMs
     ),
     glowRadius: resolveNumber(pathConfig.glowRadius, globalConfig.glowRadius),
-    centerRadius: resolveNumber(
-      pathConfig.centerRadius,
-      globalConfig.centerRadius
+    headRadius: resolveNumber(
+      pathConfig.headRadius,
+      globalConfig.headRadius ?? 10
     ),
-    endRadius: resolveNumber(pathConfig.endRadius, globalConfig.endRadius),
+    tailRadius: resolveNumber(
+      pathConfig.tailRadius,
+      globalConfig.tailRadius ?? 2
+    ),
     length: resolveNumber(pathConfig.length, globalConfig.length),
     delay: resolveNumber(pathConfig.delay, 0),
     ellipse: resolveEllipse(pathConfig.ellipse, globalConfig.ellipse),
@@ -154,6 +173,8 @@ export function drawSpark({
       pathConfig.ellipseTiltDeg,
       globalConfig.ellipseTiltDeg ?? 0
     ),
+    sparkColor: pathConfig.sparkColor ?? globalConfig.sparkColor ?? "#ffffe0",
+    glowColor: pathConfig.glowColor ?? globalConfig.glowColor ?? "#fffba4",
   };
 
   const startDir = getAngleForVertex(pathConfig.startVertex);
@@ -177,8 +198,8 @@ export function drawSpark({
   gl.uniform1f(u.timeLocation, timeNowSec);
   gl.uniform1f(u.delayLocation, delayToSeconds(merged.delay));
   gl.uniform1f(u.animationTimeLocation, merged.animationTimeMs / 1000.0);
-  gl.uniform1f(u.centerRadiusLocation, merged.centerRadius);
-  gl.uniform1f(u.endRadiusLocation, merged.endRadius);
+  gl.uniform1f(u.headRadiusLocation, merged.headRadius);
+  gl.uniform1f(u.tailRadiusLocation, merged.tailRadius);
   gl.uniform1f(u.glowRadiusLocation, merged.glowRadius);
   gl.uniform1f(
     u.cameraDistanceLocation,
@@ -200,6 +221,18 @@ export function drawSpark({
   gl.uniform1f(u.fadeWindowLocation, merged.fadeWindow);
   gl.uniform1f(u.easedNormalizedTimeLocation, easedNormalizedTime);
   gl.uniform1f(u.ellipseTiltDegLocation, merged.ellipseTiltDeg);
+
+  // Set colors - ensure we have valid hex strings
+  const sparkColorHex = typeof merged.sparkColor === 'string' ? merged.sparkColor : "#ffffe0";
+  const glowColorHex = typeof merged.glowColor === 'string' ? merged.glowColor : "#fffba4";
+  const sparkRgb = hexToRgb(sparkColorHex);
+  const glowRgb = hexToRgb(glowColorHex);
+  
+  // Debug: log colors if needed (can remove later)
+  // console.log('Colors:', { sparkColorHex, glowColorHex, sparkRgb, glowRgb });
+  
+  gl.uniform3f(u.sparkColorLocation, sparkRgb[0], sparkRgb[1], sparkRgb[2]);
+  gl.uniform3f(u.glowColorLocation, glowRgb[0], glowRgb[1], glowRgb[2]);
 
   gl.enableVertexAttribArray(attribs.positionLocation);
   gl.vertexAttribPointer(attribs.positionLocation, 2, gl.FLOAT, false, 0, 0);

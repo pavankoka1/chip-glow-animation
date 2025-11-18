@@ -1,6 +1,6 @@
 "use client";
 
-import { Add, Delete, Settings } from "@mui/icons-material";
+import { Add, Delete } from "@mui/icons-material";
 import {
   Box,
   Button,
@@ -12,13 +12,13 @@ import {
   IconButton,
   Slider,
   Stack,
+  TextField,
   Typography,
 } from "@mui/material";
 import { useMemo, useState } from "react";
 import { VERTEX_LABELS } from "./animation/constants";
 
 export default function ConfigModal({ open, onClose, config, onConfigChange }) {
-  // Remount on open toggles to re-initialize draft from config without setState in effect
   const instanceKey = useMemo(
     () => (open ? JSON.stringify(config) : "closed"),
     [open, config]
@@ -42,18 +42,15 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
   // Global handlers
   const handleAnimationTimeChange = (_e, v) => update({ animationTimeMs: v });
   const handleGlowRadiusChange = (_e, v) => update({ glowRadius: v });
-  const handleCenterRadiusChange = (_e, v) => update({ centerRadius: v });
-  const handleEndRadiusChange = (_e, v) => update({ endRadius: v });
+  const handleHeadRadiusChange = (_e, v) => update({ headRadius: v });
+  const handleTailRadiusChange = (_e, v) => update({ tailRadius: v });
   const handleLengthChange = (_e, v) => update({ length: v });
   const handleEllipseAChange = (_e, v) =>
     update({ ellipse: { ...(draft.ellipse || {}), a: v } });
   const handleEllipseBChange = (_e, v) =>
     update({ ellipse: { ...(draft.ellipse || {}), b: v } });
-  const handleCameraDistanceChange = (_e, v) => update({ cameraDistance: v });
-  const handleTiltXChange = (_e, v) => update({ viewTiltXDeg: v });
-  const handleTiltYChange = (_e, v) => update({ viewTiltYDeg: v });
-  const handleDepthAmpChange = (_e, v) => update({ depthAmplitude: v });
-  const handleDepthPhaseChange = (_e, v) => update({ depthPhaseDeg: v });
+  const handleSparkColorChange = (e) => update({ sparkColor: e.target.value });
+  const handleGlowColorChange = (e) => update({ glowColor: e.target.value });
 
   // Path handlers
   const setPath = (id, patch) => {
@@ -142,15 +139,12 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
       <DialogTitle
         sx={{ borderBottom: "1px solid rgba(255, 215, 0, 0.2)", pb: 1.25 }}
       >
-        <Box display="flex" alignItems="center" gap={1}>
-          <Settings sx={{ color: "#FFD700", fontSize: 18 }} />
-          <Typography
-            variant="body1"
-            sx={{ color: "#FFD700", fontWeight: 600 }}
-          >
-            Animation Configuration
-          </Typography>
-        </Box>
+        <Typography
+          variant="body1"
+          sx={{ color: "#FFD700", fontWeight: 600 }}
+        >
+          Animation Configuration
+        </Typography>
       </DialogTitle>
       <DialogContent
         sx={{
@@ -162,7 +156,7 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
         }}
       >
         <Stack spacing={2}>
-          {/* Global Timing/Appearance */}
+          {/* Global Settings */}
           <Box>
             <Typography
               variant="body2"
@@ -198,6 +192,92 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
               max={100}
               step={1}
               valueLabelDisplay="auto"
+            />
+          </Box>
+
+          <Box>
+            <Typography
+              variant="body2"
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5 }}
+            >
+              Head Radius (px)
+            </Typography>
+            <Slider
+              size="small"
+              value={draft.headRadius ?? 10}
+              onChange={handleHeadRadiusChange}
+              min={1}
+              max={50}
+              step={0.5}
+              valueLabelDisplay="auto"
+            />
+            <Typography
+              variant="body2"
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5, mt: 1 }}
+            >
+              Tail Radius (px)
+            </Typography>
+            <Slider
+              size="small"
+              value={draft.tailRadius ?? 2}
+              onChange={handleTailRadiusChange}
+              min={0.5}
+              max={20}
+              step={0.5}
+              valueLabelDisplay="auto"
+            />
+          </Box>
+
+          <Box>
+            <Typography
+              variant="body2"
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5 }}
+            >
+              Spark Color
+            </Typography>
+            <TextField
+              size="small"
+              value={draft.sparkColor ?? "#ffffe0"}
+              onChange={handleSparkColorChange}
+              type="color"
+              fullWidth
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  "& fieldset": {
+                    borderColor: "rgba(255, 215, 0, 0.4)",
+                  },
+                  "&:hover fieldset": {
+                    borderColor: "#FFD700",
+                  },
+                },
+              }}
+            />
+            <Typography
+              variant="body2"
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5, mt: 1 }}
+            >
+              Glow Color
+            </Typography>
+            <TextField
+              size="small"
+              value={draft.glowColor ?? "#fffba4"}
+              onChange={handleGlowColorChange}
+              type="color"
+              fullWidth
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  "& fieldset": {
+                    borderColor: "rgba(255, 215, 0, 0.4)",
+                  },
+                  "&:hover fieldset": {
+                    borderColor: "#FFD700",
+                  },
+                },
+              }}
             />
           </Box>
 
@@ -237,42 +317,6 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
             />
           </Box>
 
-          {/* Radii/Length */}
-          <Box>
-            <Typography
-              variant="body2"
-              gutterBottom
-              sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5 }}
-            >
-              Center Radius (px)
-            </Typography>
-            <Slider
-              size="small"
-              value={draft.centerRadius ?? 8}
-              onChange={handleCenterRadiusChange}
-              min={0}
-              max={40}
-              step={0.5}
-              valueLabelDisplay="auto"
-            />
-            <Typography
-              variant="body2"
-              gutterBottom
-              sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5, mt: 1 }}
-            >
-              End Radius (px)
-            </Typography>
-            <Slider
-              size="small"
-              value={draft.endRadius ?? 0}
-              onChange={handleEndRadiusChange}
-              min={0}
-              max={40}
-              step={0.5}
-              valueLabelDisplay="auto"
-            />
-          </Box>
-
           <Box>
             <Typography
               variant="body2"
@@ -288,96 +332,6 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
               min={50}
               max={800}
               step={10}
-              valueLabelDisplay="auto"
-            />
-          </Box>
-
-          {/* Camera & Depth */}
-          <Box>
-            <Typography
-              variant="body2"
-              sx={{ color: "#FFD700", fontWeight: 600, mb: 0.5 }}
-            >
-              Camera & Depth
-            </Typography>
-            <Typography
-              variant="body2"
-              gutterBottom
-              sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5 }}
-            >
-              Camera Distance (px)
-            </Typography>
-            <Slider
-              size="small"
-              value={draft.cameraDistance ?? 4000}
-              onChange={handleCameraDistanceChange}
-              min={500}
-              max={8000}
-              step={50}
-              valueLabelDisplay="auto"
-            />
-            <Typography
-              variant="body2"
-              gutterBottom
-              sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5, mt: 1 }}
-            >
-              Camera Tilt X (deg)
-            </Typography>
-            <Slider
-              size="small"
-              value={draft.viewTiltXDeg ?? 0}
-              onChange={handleTiltXChange}
-              min={-60}
-              max={60}
-              step={1}
-              valueLabelDisplay="auto"
-            />
-            <Typography
-              variant="body2"
-              gutterBottom
-              sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5, mt: 1 }}
-            >
-              Camera Tilt Y (deg)
-            </Typography>
-            <Slider
-              size="small"
-              value={draft.viewTiltYDeg ?? 0}
-              onChange={handleTiltYChange}
-              min={-60}
-              max={60}
-              step={1}
-              valueLabelDisplay="auto"
-            />
-            <Typography
-              variant="body2"
-              gutterBottom
-              sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5, mt: 1 }}
-            >
-              Depth Amplitude (px)
-            </Typography>
-            <Slider
-              size="small"
-              value={draft.depthAmplitude ?? 0}
-              onChange={handleDepthAmpChange}
-              min={0}
-              max={400}
-              step={5}
-              valueLabelDisplay="auto"
-            />
-            <Typography
-              variant="body2"
-              gutterBottom
-              sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5, mt: 1 }}
-            >
-              Depth Phase (deg)
-            </Typography>
-            <Slider
-              size="small"
-              value={draft.depthPhaseDeg ?? 0}
-              onChange={handleDepthPhaseChange}
-              min={-180}
-              max={180}
-              step={1}
               valueLabelDisplay="auto"
             />
           </Box>
@@ -533,164 +487,6 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
                         min={100}
                         max={10000}
                         step={50}
-                        valueLabelDisplay="auto"
-                      />
-                    </Box>
-
-                    {/* Ellipse overrides */}
-                    <Box>
-                      <Typography
-                        variant="body2"
-                        gutterBottom
-                        sx={{ color: "#FFD700", fontWeight: 500 }}
-                      >
-                        Ellipse a (px)
-                      </Typography>
-                      <Slider
-                        size="small"
-                        value={path.ellipse?.a ?? draft.ellipse?.a ?? 150}
-                        onChange={(_e, v) =>
-                          setPath(path.id, {
-                            ellipse: { ...(path.ellipse || {}), a: v },
-                          })
-                        }
-                        min={10}
-                        max={600}
-                        step={5}
-                        valueLabelDisplay="auto"
-                      />
-                      <Typography
-                        variant="body2"
-                        gutterBottom
-                        sx={{ color: "#FFD700", fontWeight: 500, mt: 1 }}
-                      >
-                        Ellipse b (px)
-                      </Typography>
-                      <Slider
-                        size="small"
-                        value={path.ellipse?.b ?? draft.ellipse?.b ?? 12}
-                        onChange={(_e, v) =>
-                          setPath(path.id, {
-                            ellipse: { ...(path.ellipse || {}), b: v },
-                          })
-                        }
-                        min={1}
-                        max={200}
-                        step={1}
-                        valueLabelDisplay="auto"
-                      />
-                      <Typography
-                        variant="body2"
-                        gutterBottom
-                        sx={{ color: "#FFD700", fontWeight: 500, mt: 1 }}
-                      >
-                        Ellipse Rotation (deg)
-                      </Typography>
-                      <Slider
-                        size="small"
-                        value={path.ellipseRotationDeg ?? 0}
-                        onChange={(_e, v) =>
-                          setPath(path.id, { ellipseRotationDeg: v })
-                        }
-                        min={-180}
-                        max={180}
-                        step={1}
-                        valueLabelDisplay="auto"
-                      />
-                    </Box>
-
-                    {/* Camera & depth overrides */}
-                    <Box>
-                      <Typography
-                        variant="body2"
-                        gutterBottom
-                        sx={{ color: "#FFD700", fontWeight: 500 }}
-                      >
-                        Camera Distance (px)
-                      </Typography>
-                      <Slider
-                        size="small"
-                        value={
-                          path.cameraDistance ?? draft.cameraDistance ?? 4000
-                        }
-                        onChange={(_e, v) =>
-                          setPath(path.id, { cameraDistance: v })
-                        }
-                        min={500}
-                        max={8000}
-                        step={50}
-                        valueLabelDisplay="auto"
-                      />
-                      <Typography
-                        variant="body2"
-                        gutterBottom
-                        sx={{ color: "#FFD700", fontWeight: 500, mt: 1 }}
-                      >
-                        Camera Tilt X (deg)
-                      </Typography>
-                      <Slider
-                        size="small"
-                        value={path.viewTiltXDeg ?? draft.viewTiltXDeg ?? 0}
-                        onChange={(_e, v) =>
-                          setPath(path.id, { viewTiltXDeg: v })
-                        }
-                        min={-60}
-                        max={60}
-                        step={1}
-                        valueLabelDisplay="auto"
-                      />
-                      <Typography
-                        variant="body2"
-                        gutterBottom
-                        sx={{ color: "#FFD700", fontWeight: 500, mt: 1 }}
-                      >
-                        Camera Tilt Y (deg)
-                      </Typography>
-                      <Slider
-                        size="small"
-                        value={path.viewTiltYDeg ?? draft.viewTiltYDeg ?? 0}
-                        onChange={(_e, v) =>
-                          setPath(path.id, { viewTiltYDeg: v })
-                        }
-                        min={-60}
-                        max={60}
-                        step={1}
-                        valueLabelDisplay="auto"
-                      />
-                      <Typography
-                        variant="body2"
-                        gutterBottom
-                        sx={{ color: "#FFD700", fontWeight: 500, mt: 1 }}
-                      >
-                        Depth Amplitude (px)
-                      </Typography>
-                      <Slider
-                        size="small"
-                        value={path.depthAmplitude ?? draft.depthAmplitude ?? 0}
-                        onChange={(_e, v) =>
-                          setPath(path.id, { depthAmplitude: v })
-                        }
-                        min={0}
-                        max={400}
-                        step={5}
-                        valueLabelDisplay="auto"
-                      />
-                      <Typography
-                        variant="body2"
-                        gutterBottom
-                        sx={{ color: "#FFD700", fontWeight: 500, mt: 1 }}
-                      >
-                        Depth Phase (deg)
-                      </Typography>
-                      <Slider
-                        size="small"
-                        value={path.depthPhaseDeg ?? draft.depthPhaseDeg ?? 0}
-                        onChange={(_e, v) =>
-                          setPath(path.id, { depthPhaseDeg: v })
-                        }
-                        min={-180}
-                        max={180}
-                        step={1}
                         valueLabelDisplay="auto"
                       />
                     </Box>

@@ -23,8 +23,8 @@ uniform vec2 u_center;
 uniform mediump float u_time;              // current time in seconds
 uniform mediump float u_delay;             // path delay in seconds
 uniform mediump float u_animationTime;     // total animation time in seconds
-uniform mediump float u_centerRadius;      // px
-uniform mediump float u_endRadius;         // px
+uniform mediump float u_headRadius;        // px (radius at head)
+uniform mediump float u_tailRadius;        // px (radius at tail)
 uniform mediump float u_glowRadius;        // px (halo size outside)
 uniform mediump float u_cameraDistance;
 uniform mediump float u_lineLength;        // px
@@ -44,6 +44,8 @@ uniform mediump float u_overshoot;         // extra phase beyond 1.0 (phase unit
 uniform mediump float u_fadeWindow;        // fade window in phase after tail end
 uniform mediump float u_easedNormalizedTime; // eased normalized time (0.0 to 1.0) from JS
 uniform mediump float u_ellipseTiltDeg;    // ellipse plane tilt (deg), rotates around major axis
+uniform vec3 u_sparkColor;                  // spark color (RGB)
+uniform vec3 u_glowColor;                   // glow color (RGB)
 varying vec2 v_position;
 
 vec2 project3D(vec3 pos3D) {
@@ -62,33 +64,34 @@ vec3 ellipsePositionLocal(float thetaLocal) {
   float z = u_depthAmp * sin(thetaLocal + u_depthPhase);
   vec3 p = vec3(rotated, z);
   
-  // Apply ellipse plane tilt: rotate around the major axis (perpendicular to ellipse plane)
+  // Apply ellipse plane tilt: rotate around the minor axis (perpendicular to major axis in ellipse plane)
   // The major axis direction after base rotation is (cos(baseRot), sin(baseRot), 0)
+  // The minor axis is perpendicular to major axis: (-sin(baseRot), cos(baseRot), 0)
   float ellipseTilt = u_ellipseTiltDeg * 3.141592653589793 / 180.0; // convert deg to rad
   if (abs(ellipseTilt) > 0.0001) {
-    // Major axis direction (unit vector in XY plane)
-    vec3 majorAxis = vec3(c, s, 0.0);
+    // Minor axis direction (perpendicular to major axis in XY plane)
+    vec3 minorAxis = vec3(-s, c, 0.0);
     // Normalize (should already be unit, but be safe)
-    float axisLen = length(majorAxis);
+    float axisLen = length(minorAxis);
     if (axisLen > 0.0001) {
-      majorAxis = majorAxis / axisLen;
+      minorAxis = minorAxis / axisLen;
     }
     
-    // Rotation around major axis using Rodrigues' rotation formula
+    // Rotation around minor axis using Rodrigues' rotation formula
     float ct = cos(ellipseTilt);
     float st = sin(ellipseTilt);
     float oneMinusCt = 1.0 - ct;
     
     // Rotation matrix components
-    float m00 = ct + majorAxis.x * majorAxis.x * oneMinusCt;
-    float m01 = majorAxis.x * majorAxis.y * oneMinusCt - majorAxis.z * st;
-    float m02 = majorAxis.x * majorAxis.z * oneMinusCt + majorAxis.y * st;
-    float m10 = majorAxis.y * majorAxis.x * oneMinusCt + majorAxis.z * st;
-    float m11 = ct + majorAxis.y * majorAxis.y * oneMinusCt;
-    float m12 = majorAxis.y * majorAxis.z * oneMinusCt - majorAxis.x * st;
-    float m20 = majorAxis.z * majorAxis.x * oneMinusCt - majorAxis.y * st;
-    float m21 = majorAxis.z * majorAxis.y * oneMinusCt + majorAxis.x * st;
-    float m22 = ct + majorAxis.z * majorAxis.z * oneMinusCt;
+    float m00 = ct + minorAxis.x * minorAxis.x * oneMinusCt;
+    float m01 = minorAxis.x * minorAxis.y * oneMinusCt - minorAxis.z * st;
+    float m02 = minorAxis.x * minorAxis.z * oneMinusCt + minorAxis.y * st;
+    float m10 = minorAxis.y * minorAxis.x * oneMinusCt + minorAxis.z * st;
+    float m11 = ct + minorAxis.y * minorAxis.y * oneMinusCt;
+    float m12 = minorAxis.y * minorAxis.z * oneMinusCt - minorAxis.x * st;
+    float m20 = minorAxis.z * minorAxis.x * oneMinusCt - minorAxis.y * st;
+    float m21 = minorAxis.z * minorAxis.y * oneMinusCt + minorAxis.x * st;
+    float m22 = ct + minorAxis.z * minorAxis.z * oneMinusCt;
     
     // Apply rotation
     p = vec3(
@@ -205,10 +208,9 @@ void main() {
   float distPx = closest.x;
   float along01 = closest.z; // 0 tail -> 1 head
 
-  // Radius taper: center at along=0.5, ends at along=0 or 1
-  float distFromCenter = abs(along01 - 0.5) * 2.0;
-  float smoothDist = smoothstep(0.0, 1.0, distFromCenter);
-  float radius = mix(u_endRadius, u_centerRadius, 1.0 - smoothDist);
+  // Radius taper: head (along01=1.0) has headRadius, tail (along01=0.0) has tailRadius
+  // Gradually decrease from head to tail
+  float radius = mix(u_tailRadius, u_headRadius, along01);
 
   // Core opacity (solid circle)
   float coreAlpha = 1.0 - smoothstep(0.0, radius, distPx);
@@ -216,6 +218,20 @@ void main() {
   // Glow outside the circle: 0.9 at radius fading to ~0 at radius+glowRadius
   float glowAlpha = (1.0 - smoothstep(radius, radius + u_glowRadius, distPx)) * 0.9;
 
+  // Use spark color for core, glow color for glow
+  vec3 sparkColor = u_sparkColor;
+  vec3 glowColor = u_glowColor;
+  
+  // Select color based on distance: core area uses sparkColor, glow area uses glowColor
+  vec3 finalColor;
+  if (distPx <= radius) {
+    // Inside core - use spark color
+    finalColor = sparkColor;
+  } else {
+    // In glow area - use glow color
+    finalColor = glowColor;
+  }
+  
   float totalAlpha = max(coreAlpha, glowAlpha);
   totalAlpha = clamp(totalAlpha, 0.0, 1.0);
 
@@ -232,8 +248,7 @@ void main() {
     float fadeMul = 1.0 - fadeOutPhase;
     totalAlpha *= fadeMul;
   }
-
-  vec3 gold = vec3(1.0, 0.843, 0.0);
-  gl_FragColor = vec4(gold, totalAlpha);
+  
+  gl_FragColor = vec4(finalColor, totalAlpha);
 }
 `;

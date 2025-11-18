@@ -149,19 +149,19 @@ export default function GlowAnimation({
       const rz = depthAmp * Math.sin(th + depthPhase);
       let p = [rx, ry, rz];
 
-      // Apply ellipse plane tilt: rotate around the major axis
+      // Apply ellipse plane tilt: rotate around the minor axis (perpendicular to major axis in ellipse plane)
       if (Math.abs(ellipseTilt) > 0.0001) {
-        // Major axis direction (unit vector in XY plane)
-        const majorAxis = [c, s, 0];
-        const axisLen = Math.hypot(majorAxis[0], majorAxis[1], majorAxis[2]);
+        // Minor axis direction (perpendicular to major axis in XY plane)
+        const minorAxis = [-s, c, 0];
+        const axisLen = Math.hypot(minorAxis[0], minorAxis[1], minorAxis[2]);
         if (axisLen > 0.0001) {
           const normalizedAxis = [
-            majorAxis[0] / axisLen,
-            majorAxis[1] / axisLen,
-            majorAxis[2] / axisLen,
+            minorAxis[0] / axisLen,
+            minorAxis[1] / axisLen,
+            minorAxis[2] / axisLen,
           ];
 
-          // Rotation around major axis using Rodrigues' rotation formula
+          // Rotation around minor axis using Rodrigues' rotation formula
           const ct = Math.cos(ellipseTilt);
           const st = Math.sin(ellipseTilt);
           const oneMinusCt = 1 - ct;
@@ -286,8 +286,6 @@ export default function GlowAnimation({
       const dtSec = Math.min(0.05, (ts - lastTsRef.current) / 1000);
       lastTsRef.current = ts;
       accumulatedSecRef.current += dtSec;
-
-      console.log(accumulatedSecRef.current, lastTsRef.current, dtSec, ts);
 
       const currentTimeSec = accumulatedSecRef.current;
 

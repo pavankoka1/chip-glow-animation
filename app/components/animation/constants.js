@@ -9,16 +9,19 @@ export const VERTEX_LABELS = [
 export const DEFAULT_CONFIG = {
   animationTimeMs: 1200,
   glowRadius: 20,
-  ellipse: { b: 12 }, // a will be auto-calculated as 10 + (diagonal / 2), b is semi-minor in px
-  centerRadius: 8,
-  endRadius: 0,
+  ellipse: { b: 12 }, // a will be auto-calculated as diagonal / 2, b is semi-minor in px
+  headRadius: 10,      // radius at head (px)
+  tailRadius: 2,       // radius at tail (px)
   length: 300,
+  sparkColor: "#ffffe0", // default spark color
+  glowColor: "#fffba4",  // default glow color
+  // Internal/advanced settings (not in config modal)
   cameraDistance: 4000,
-  viewTiltXDeg: 0,  // camera pitch (deg), rotates around X
-  viewTiltYDeg: 0,  // camera yaw (deg), rotates around Y
-  depthAmplitude: 0, // default no depth to avoid diagonal deviation
-  depthPhaseDeg: 0,    // phase shift (deg) for depth oscillation
-  ellipseTiltDeg: 0,   // ellipse plane tilt (deg), rotates around major axis (180° reverses animation)
+  viewTiltXDeg: 0,
+  viewTiltYDeg: 0,
+  depthAmplitude: 0,
+  depthPhaseDeg: 0,
+  ellipseTiltDeg: 0,
   overshoot: 0.08,
   fadeWindow: 0.08,
   debug: false,
@@ -29,10 +32,6 @@ export const DEFAULT_CONFIG = {
       endVertex: "BL",
       delay: 0,
       enabled: true,
-      // Optional overrides per-path:
-      // animationTimeMs, glowRadius, ellipse: {a,b}, centerRadius, endRadius, length,
-      // cameraDistance, viewTiltXDeg, viewTiltYDeg, depthAmplitude, depthPhaseDeg, ellipseRotationDeg,
-      // overshoot, fadeWindow, debug
     },
   ],
 };

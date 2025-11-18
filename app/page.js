@@ -16,16 +16,12 @@ export default function Home() {
   const [config, setConfig] = useState({
     animationTimeMs: 700,
     glowRadius: 30,
-    ellipse: { b: 10 }, // a will be auto-calculated as 10 + (diagonal / 2)
-    centerRadius: 10,
-    endRadius: 5,
+    ellipse: { b: 20, a: 145 },
+    headRadius: 10,
+    tailRadius: 2,
     length: 300,
-    // Camera / depth / tilt defaults
-    cameraDistance: 2000,
-    viewTiltXDeg: 0,
-    viewTiltYDeg: 0,
-    depthAmplitude: 100,
-    depthPhaseDeg: 0,
+    sparkColor: "#fffdbb",
+    glowColor: "#fff391",
     paths: [
       {
         id: 1,
@@ -33,7 +29,7 @@ export default function Home() {
         endVertex: "TL",
         delay: 0,
         length: 100,
-        ellipseTiltDeg: 20,
+        ellipseTiltDeg: 30,
         enabled: true,
       },
       {
@@ -45,22 +41,22 @@ export default function Home() {
         ellipseTiltDeg: 0,
         enabled: true,
       },
-      {
-        id: 3,
-        startVertex: "BR",
-        endVertex: "TL",
-        delay: 900,
-        length: 100,
-        enabled: true,
-      },
-      {
-        id: 4,
-        startVertex: "BL",
-        endVertex: "TR",
-        delay: 1200,
-        length: 100,
-        enabled: true,
-      },
+      // {
+      //   id: 3,
+      //   startVertex: "BR",
+      //   endVertex: "TL",
+      //   delay: 900,
+      //   length: 100,
+      //   enabled: true,
+      // },
+      // {
+      //   id: 4,
+      //   startVertex: "BL",
+      //   endVertex: "TR",
+      //   delay: 1200,
+      //   length: 100,
+      //   enabled: true,
+      // },
     ],
   });
 
