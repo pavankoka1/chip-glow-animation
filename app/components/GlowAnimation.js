@@ -48,7 +48,7 @@ export default function GlowAnimation({
     // return t;
 
     // Ease-out sine: 1 - Math.cos((x * Math.PI) / 2)
-    return 1 - Math.cos((t * Math.PI) / 2);
+    // return 1 - Math.cos((t * Math.PI) / 2);
 
     // Ease-in sine: smooth acceleration
     // return 1 - Math.cos((1 - t) * Math.PI / 2);
@@ -57,8 +57,8 @@ export default function GlowAnimation({
     // return -(Math.cos(Math.PI * t) - 1) / 2;
 
     // Ease-out cubic: smooth deceleration
-    // const t1 = 1 - t;
-    // return 1 - (t1 * t1 * t1);
+    const t1 = 1 - t;
+    return 1 - Math.pow(t1, 3);
 
     // Ease-in cubic: smooth acceleration
     // return t * t * t;
@@ -232,6 +232,8 @@ export default function GlowAnimation({
       const dtSec = Math.min(0.05, (ts - lastTsRef.current) / 1000);
       lastTsRef.current = ts;
       accumulatedSecRef.current += dtSec;
+
+      console.log(accumulatedSecRef.current, lastTsRef.current, dtSec, ts);
 
       const currentTimeSec = accumulatedSecRef.current;
 
