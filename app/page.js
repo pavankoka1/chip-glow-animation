@@ -14,7 +14,7 @@ export default function Home() {
   const [configOpen, setConfigOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [config, setConfig] = useState({
-    animationTimeMs: 500,
+    animationTimeMs: 1000,
     glowRadius: 30,
     ellipse: { b: 4 }, // a will be auto-calculated as 10 + (diagonal / 2)
     centerRadius: 10,

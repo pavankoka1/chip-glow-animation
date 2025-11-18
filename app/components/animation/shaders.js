@@ -42,6 +42,7 @@ uniform mediump float u_depthAmp;          // depth amplitude (px)
 uniform mediump float u_depthPhase;        // depth phase (radians)
 uniform mediump float u_overshoot;         // extra phase beyond 1.0 (phase units)
 uniform mediump float u_fadeWindow;        // fade window in phase after tail end
+uniform mediump float u_easedNormalizedTime; // eased normalized time (0.0 to 1.0) from JS
 varying vec2 v_position;
 
 vec2 project3D(vec3 pos3D) {
@@ -128,12 +129,15 @@ void main() {
   float segmentParam = clamp(u_lineLength / max(totalArcPx, 0.0001), 0.0, 1.0);
 
   // Phase scaling so the full animation (head+tail+overshoot) fits u_animationTime
+  // Easing is applied in JavaScript, u_easedNormalizedTime is already eased (0.0 to 1.0)
   float totalSpan = 1.0 + segmentParam + u_overshoot;
-  float phase = (adjustedTime / max(u_animationTime, 0.0001)) * totalSpan;
+  float phase = u_easedNormalizedTime * totalSpan;
 
   // Allow animation to continue until tail reaches end
+  // Use small epsilon to handle floating point precision issues
   float maxPhase = totalSpan;
-  if (phase >= maxPhase + u_fadeWindow) {
+  float epsilon = 0.0001;
+  if (phase >= maxPhase + u_fadeWindow - epsilon) {
     gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
     return;
   }
@@ -141,6 +145,19 @@ void main() {
   // Head can overshoot slightly into the overshoot range
   float segHead = clamp(phase, 0.0, totalSpan);
   float segTail = clamp(phase - segmentParam, 0.0, 1.0);
+
+  // If tail has reached the end (segTail >= 1.0), the segment collapses to a point
+  // Start fading out immediately to prevent lingering dot
+  if (segTail >= 1.0 - 0.0001) {
+    // Calculate how far past the end we are
+    float pastEnd = phase - 1.0;
+    if (pastEnd >= u_fadeWindow) {
+      // Completely fade out after fadeWindow
+      gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+      return;
+    }
+    // Continue to render but will fade out below
+  }
 
   float thetaTail = mix(thetaStart, thetaEnd, segTail);
   float thetaHead = mix(thetaStart, thetaEnd, min(segHead, 1.0));
@@ -165,8 +182,16 @@ void main() {
   totalAlpha = clamp(totalAlpha, 0.0, 1.0);
 
   // Fade out gracefully during overshoot window
+  // Also fade out when tail reaches end (prevents lingering dot)
   if (phase > maxPhase) {
     float fadeMul = 1.0 - smoothstep(maxPhase, maxPhase + max(u_fadeWindow, 0.0001), phase);
+    totalAlpha *= fadeMul;
+  } else if (segTail >= 1.0 - 0.0001) {
+    // Fade out when tail reaches end (prevents lingering dot at endpoint)
+    // This happens when phase >= 1.0 and tail is clamped to 1.0
+    float pastEnd = max(0.0, phase - 1.0);
+    float fadeOutPhase = clamp(pastEnd / max(u_fadeWindow, 0.0001), 0.0, 1.0);
+    float fadeMul = 1.0 - fadeOutPhase;
     totalAlpha *= fadeMul;
   }
 

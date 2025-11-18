@@ -1,5 +1,20 @@
 "use client";
 
+/**
+ * GlowAnimation Component
+ *
+ * EASING FUNCTION: The easing function is located in this file (GlowAnimation.js).
+ * Look for the `applyEasing` function around line 46.
+ * To change the easing, comment out the current return statement and uncomment
+ * the easing function you want to use. The function takes normalized time (0.0-1.0)
+ * and returns eased time (0.0-1.0).
+ *
+ * Available easing options (commented in this file):
+ * - Linear (default)
+ * - Ease-out sine: 1 - Math.cos((x * Math.PI) / 2)
+ * - Ease-in/out sine, cubic, quad, expo, back, elastic
+ */
+
 import { useEffect, useRef } from "react";
 import useFps from "../hooks/useFps";
 import { disposeSpark, drawSpark } from "./animation/Spark";
@@ -24,6 +39,68 @@ export default function GlowAnimation({
   const delayToSeconds = (v) =>
     typeof v === "number" && !Number.isNaN(v) ? (v > 20 ? v / 1000 : v) : 0;
   const degToRad = (d) => (d * Math.PI) / 180;
+
+  // Easing function: takes normalized time (0.0 to 1.0) and returns eased value (0.0 to 1.0)
+  // To change easing: Comment out the current return and uncomment the one you want
+  // Currently active: Linear (no easing)
+  const applyEasing = (t) => {
+    // Linear (no easing) - default
+    // return t;
+
+    // Ease-out sine: 1 - Math.cos((x * Math.PI) / 2)
+    return 1 - Math.cos((t * Math.PI) / 2);
+
+    // Ease-in sine: smooth acceleration
+    // return 1 - Math.cos((1 - t) * Math.PI / 2);
+
+    // Ease-in-out sine: smooth start and end
+    // return -(Math.cos(Math.PI * t) - 1) / 2;
+
+    // Ease-out cubic: smooth deceleration
+    // const t1 = 1 - t;
+    // return 1 - (t1 * t1 * t1);
+
+    // Ease-in cubic: smooth acceleration
+    // return t * t * t;
+
+    // Ease-in-out cubic: smooth start and end
+    // return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+    // Ease-out quad: gentle deceleration
+    // const t1 = 1 - t;
+    // return 1 - (t1 * t1);
+
+    // Ease-in quad: gentle acceleration
+    // return t * t;
+
+    // Ease-in-out quad: gentle start and end
+    // return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+    // Ease-out expo: exponential deceleration
+    // return t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
+
+    // Ease-in expo: exponential acceleration
+    // return t <= 0 ? 0 : Math.pow(2, 10 * (t - 1));
+
+    // Ease-out back: overshoots slightly at end
+    // const c1 = 1.70158;
+    // const c3 = c1 + 1;
+    // const t1 = t - 1;
+    // return 1 + c3 * Math.pow(t1, 3) + c1 * Math.pow(t1, 2);
+
+    // Ease-in back: overshoots slightly at start
+    // const c1 = 1.70158;
+    // const c3 = c1 + 1;
+    // return c3 * t * t * t - c1 * t * t;
+
+    // Ease-in-out elastic: bouncy effect
+    // if (t <= 0) return 0;
+    // if (t >= 1) return 1;
+    // const c5 = (2 * Math.PI) / 3;
+    // return t < 0.5
+    //   ? -(Math.pow(2, 20 * t - 10) * Math.sin((20 * t - 11.125) * c5)) / 2
+    //   : (Math.pow(2, -20 * t + 10) * Math.sin((20 * t - 11.125) * c5)) / 2 + 1;
+  };
 
   const cornerPoint = (vertex, rect) => {
     switch (vertex) {
@@ -283,12 +360,38 @@ export default function GlowAnimation({
         const fadeWindow = p.fadeWindow ?? cfg.fadeWindow ?? 0.08;
         const totalSpan = 1.0 + segmentParam + overshoot;
 
-        // Scale phase so that full animation (including overshoot) fits into durationSec
-        const scaledPhase =
-          (elapsed / Math.max(durationSec, 0.0001)) * totalSpan;
+        // Calculate eased normalized time (same as in shader)
+        const normalizedTime = Math.min(
+          1.0,
+          Math.max(0.0, elapsed / Math.max(durationSec, 0.0001))
+        );
+        let easedNormalizedTime = applyEasing(normalizedTime);
+
+        // Ensure eased time reaches 1.0 when normalized time is 1.0 (for completion)
+        // This prevents lingering dots when easing functions approach 1.0 asymptotically
+        if (normalizedTime >= 1.0) {
+          easedNormalizedTime = 1.0;
+        }
+
+        // Scale phase using eased time (same calculation as in shader)
+        const scaledPhase = easedNormalizedTime * totalSpan;
         const completeThreshold = totalSpan + fadeWindow;
 
-        if (scaledPhase < completeThreshold) {
+        // Check completion: animation is complete when phase reaches threshold
+        // The fade window is in phase units, so we need to convert it to time
+        // Since phase = easedNormalizedTime * totalSpan, and easedNormalizedTime goes from 0 to 1
+        // The fade window phase units correspond to: fadeWindow / totalSpan of the normalized time
+        // So the fade window duration is: (fadeWindow / totalSpan) * durationSec
+        const fadeWindowDuration = (fadeWindow / totalSpan) * durationSec;
+        const totalDuration = durationSec + fadeWindowDuration;
+
+        // Path is complete if:
+        // 1. Enough time has elapsed (including fade window), OR
+        // 2. Phase has reached the complete threshold
+        const isPathComplete =
+          elapsed >= totalDuration || scaledPhase >= completeThreshold - 0.0001;
+
+        if (!isPathComplete) {
           allComplete = false;
         }
       }
@@ -318,6 +421,25 @@ export default function GlowAnimation({
           ...path,
           ellipse: { ...(path.ellipse || {}), a: autoA, b: bVal },
         };
+
+        // Calculate eased normalized time for this path
+        const delayRaw = path.delay || 0;
+        const delaySec = delayToSeconds(delayRaw);
+        const durationSec =
+          (path.animationTimeMs ?? animationTimeMsGlobal) / 1000.0;
+        const elapsed = Math.max(0, currentTimeSec - delaySec);
+        const normalizedTime = Math.min(
+          1.0,
+          Math.max(0.0, elapsed / Math.max(durationSec, 0.0001))
+        );
+        let easedNormalizedTime = applyEasing(normalizedTime);
+
+        // Ensure eased time reaches 1.0 when normalized time is 1.0 (for completion)
+        // This prevents lingering dots when easing functions approach 1.0 asymptotically
+        if (normalizedTime >= 1.0) {
+          easedNormalizedTime = 1.0;
+        }
+
         drawSpark({
           gl,
           canvas,
@@ -325,6 +447,7 @@ export default function GlowAnimation({
           timeNowSec: currentTimeSec,
           globalConfig: cfg,
           pathConfig: pathWithAutoEllipse,
+          easedNormalizedTime,
         });
       }
 

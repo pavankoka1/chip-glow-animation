@@ -68,6 +68,7 @@ function getProgramBundle(gl) {
     depthPhaseLocation: gl.getUniformLocation(program, "u_depthPhase"),
     overshootLocation: gl.getUniformLocation(program, "u_overshoot"),
     fadeWindowLocation: gl.getUniformLocation(program, "u_fadeWindow"),
+    easedNormalizedTimeLocation: gl.getUniformLocation(program, "u_easedNormalizedTime"),
   };
   bundle = { program, attribs, uniforms };
   programCache.set(gl, bundle);
@@ -97,6 +98,7 @@ export function drawSpark({
   timeNowSec,
   globalConfig,
   pathConfig,
+  easedNormalizedTime,
 }) {
   if (!gl) return;
   const { program, attribs, uniforms: u } = getProgramBundle(gl);
@@ -188,6 +190,7 @@ export function drawSpark({
   gl.uniform1f(u.depthPhaseLocation, degToRad(merged.depthPhaseDeg));
   gl.uniform1f(u.overshootLocation, merged.overshoot);
   gl.uniform1f(u.fadeWindowLocation, merged.fadeWindow);
+  gl.uniform1f(u.easedNormalizedTimeLocation, easedNormalizedTime);
 
   gl.enableVertexAttribArray(attribs.positionLocation);
   gl.vertexAttribPointer(attribs.positionLocation, 2, gl.FLOAT, false, 0, 0);
