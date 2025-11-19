@@ -55,6 +55,7 @@ function getProgramBundle(gl) {
     glowRadiusLocation: gl.getUniformLocation(program, "u_glowRadius"),
     cameraDistanceLocation: gl.getUniformLocation(program, "u_cameraDistance"),
     lineLengthLocation: gl.getUniformLocation(program, "u_lineLength"),
+    totalArcPxLocation: gl.getUniformLocation(program, "u_totalArcPx"),
     aLocation: gl.getUniformLocation(program, "u_a"),
     bLocation: gl.getUniformLocation(program, "u_b"),
     rotAngleLocation: gl.getUniformLocation(program, "u_rotAngle"),
@@ -111,6 +112,9 @@ function hexToRgb(hex) {
   ];
 }
 
+// Cache for hex color conversions to avoid regex on every frame
+const colorCache = new Map();
+
 export function drawSpark({
   gl,
   canvas,
@@ -119,6 +123,7 @@ export function drawSpark({
   globalConfig,
   pathConfig,
   easedNormalizedTime,
+  totalArcPx,
 }) {
   if (!gl) return;
   const { program, attribs, uniforms: u } = getProgramBundle(gl);
@@ -206,6 +211,7 @@ export function drawSpark({
     resolveNumber(merged.cameraDistance, CAMERA_DISTANCE)
   );
   gl.uniform1f(u.lineLengthLocation, merged.length);
+  gl.uniform1f(u.totalArcPxLocation, totalArcPx || 1.0);
   gl.uniform1f(u.aLocation, merged.ellipse.a);
   gl.uniform1f(u.bLocation, merged.ellipse.b);
   gl.uniform1f(u.rotAngleLocation, rotAngle);
@@ -221,15 +227,33 @@ export function drawSpark({
   gl.uniform1f(u.fadeWindowLocation, merged.fadeWindow);
   gl.uniform1f(u.easedNormalizedTimeLocation, easedNormalizedTime);
   gl.uniform1f(u.ellipseTiltDegLocation, merged.ellipseTiltDeg);
+  
+  // Debug: log ellipseTiltDeg value
+  if (pathConfig.id === 1 || pathConfig.id === 2) {
+    const rotationAngle = (90 - merged.ellipseTiltDeg) * Math.PI / 180;
+    console.log(`[Path ${pathConfig.id}] ellipseTiltDeg:`, merged.ellipseTiltDeg, 
+      '→ rotation angle (rad):', rotationAngle.toFixed(4),
+      '→ rotation angle (deg):', (rotationAngle * 180 / Math.PI).toFixed(2),
+      '→ cos:', Math.cos(rotationAngle).toFixed(4),
+      '→ sin:', Math.sin(rotationAngle).toFixed(4));
+  }
 
-  // Set colors - ensure we have valid hex strings
+  // Set colors - ensure we have valid hex strings, with caching
   const sparkColorHex = typeof merged.sparkColor === 'string' ? merged.sparkColor : "#ffffe0";
   const glowColorHex = typeof merged.glowColor === 'string' ? merged.glowColor : "#fffba4";
-  const sparkRgb = hexToRgb(sparkColorHex);
-  const glowRgb = hexToRgb(glowColorHex);
   
-  // Debug: log colors if needed (can remove later)
-  // console.log('Colors:', { sparkColorHex, glowColorHex, sparkRgb, glowRgb });
+  // Cache color conversions to avoid regex on every frame
+  let sparkRgb = colorCache.get(sparkColorHex);
+  if (!sparkRgb) {
+    sparkRgb = hexToRgb(sparkColorHex);
+    colorCache.set(sparkColorHex, sparkRgb);
+  }
+  
+  let glowRgb = colorCache.get(glowColorHex);
+  if (!glowRgb) {
+    glowRgb = hexToRgb(glowColorHex);
+    colorCache.set(glowColorHex, glowRgb);
+  }
   
   gl.uniform3f(u.sparkColorLocation, sparkRgb[0], sparkRgb[1], sparkRgb[2]);
   gl.uniform3f(u.glowColorLocation, glowRgb[0], glowRgb[1], glowRgb[2]);

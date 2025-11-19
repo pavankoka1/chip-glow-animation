@@ -12,15 +12,15 @@ export default function Home() {
   const betspotRef = useRef(null);
   const [anchorEl, setAnchorEl] = useState(null);
   const [configOpen, setConfigOpen] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(true);
   const [config, setConfig] = useState({
-    animationTimeMs: 700,
+    animationTimeMs: 800,
     glowRadius: 30,
-    ellipse: { b: 20, a: 145 },
+    ellipse: { b: 20, a: 150 },
     headRadius: 10,
     tailRadius: 2,
     length: 300,
-    sparkColor: "#fffdbb",
+    sparkColor: "#ffff00",
     glowColor: "#fff391",
     paths: [
       {
@@ -29,7 +29,7 @@ export default function Home() {
         endVertex: "TL",
         delay: 0,
         length: 100,
-        ellipseTiltDeg: 30,
+        ellipseTiltDeg: 45,
         enabled: true,
       },
       {

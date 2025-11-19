@@ -57,8 +57,8 @@ export default function GlowAnimation({
     // return -(Math.cos(Math.PI * t) - 1) / 2;
 
     // Ease-out cubic: smooth deceleration
-    const t1 = 1 - t;
-    return 1 - Math.pow(t1, 3);
+    // const t1 = 1 - t;
+    // return 1 - Math.pow(t1, 3);
 
     // Ease-in cubic: smooth acceleration
     // return t * t * t;
@@ -67,8 +67,8 @@ export default function GlowAnimation({
     // return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
     // Ease-out quad: gentle deceleration
-    // const t1 = 1 - t;
-    // return 1 - (t1 * t1);
+    const t1 = 1 - t;
+    return 1 - t1 * t1;
 
     // Ease-in quad: gentle acceleration
     // return t * t;
@@ -141,7 +141,6 @@ export default function GlowAnimation({
       sx = Math.sin(tiltX);
     const cy = Math.cos(tiltY),
       sy = Math.sin(tiltY);
-    const ellipseTilt = degToRad(ellipseTiltDeg);
 
     const project = (lx, ly, th) => {
       const rx = c * lx - s * ly;
@@ -149,52 +148,90 @@ export default function GlowAnimation({
       const rz = depthAmp * Math.sin(th + depthPhase);
       let p = [rx, ry, rz];
 
-      // Apply ellipse plane tilt: rotate around the minor axis (perpendicular to major axis in ellipse plane)
-      if (Math.abs(ellipseTilt) > 0.0001) {
-        // Minor axis direction (perpendicular to major axis in XY plane)
-        const minorAxis = [-s, c, 0];
-        const axisLen = Math.hypot(minorAxis[0], minorAxis[1], minorAxis[2]);
-        if (axisLen > 0.0001) {
-          const normalizedAxis = [
-            minorAxis[0] / axisLen,
-            minorAxis[1] / axisLen,
-            minorAxis[2] / axisLen,
-          ];
+      // Apply ellipse plane tilt: rotate around the major axis to tilt the ellipse plane
+      // At 0°: minor axis is on z-axis (ellipse plane is vertical, rotate 90° around major axis)
+      // At 90°: minor axis is in XY plane (ellipse plane is horizontal, no rotation)
+      // So we rotate by (90° - ellipseTiltDeg) around the major axis to tilt the ellipse plane
+      const ellipseTiltRad = ((90 - ellipseTiltDeg) * Math.PI) / 180;
 
-          // Rotation around minor axis using Rodrigues' rotation formula
-          const ct = Math.cos(ellipseTilt);
-          const st = Math.sin(ellipseTilt);
-          const oneMinusCt = 1 - ct;
+      // Debug: log values for path computation
+      if (
+        Math.abs(ellipseTiltDeg) > 0.1 ||
+        Math.abs(ellipseTiltDeg - 90) < 0.1
+      ) {
+        console.log(
+          `[computePathLength] ellipseTiltDeg: ${ellipseTiltDeg}°, rotation angle: ${ellipseTiltRad}rad (${
+            (ellipseTiltRad * 180) / Math.PI
+          }°), baseRot: ${baseRot}rad`
+        );
+      }
 
-          // Rotation matrix components
-          const m00 = ct + normalizedAxis[0] * normalizedAxis[0] * oneMinusCt;
-          const m01 =
-            normalizedAxis[0] * normalizedAxis[1] * oneMinusCt -
-            normalizedAxis[2] * st;
-          const m02 =
-            normalizedAxis[0] * normalizedAxis[2] * oneMinusCt +
-            normalizedAxis[1] * st;
-          const m10 =
-            normalizedAxis[1] * normalizedAxis[0] * oneMinusCt +
-            normalizedAxis[2] * st;
-          const m11 = ct + normalizedAxis[1] * normalizedAxis[1] * oneMinusCt;
-          const m12 =
-            normalizedAxis[1] * normalizedAxis[2] * oneMinusCt -
-            normalizedAxis[0] * st;
-          const m20 =
-            normalizedAxis[2] * normalizedAxis[0] * oneMinusCt -
-            normalizedAxis[1] * st;
-          const m21 =
-            normalizedAxis[2] * normalizedAxis[1] * oneMinusCt +
-            normalizedAxis[0] * st;
-          const m22 = ct + normalizedAxis[2] * normalizedAxis[2] * oneMinusCt;
+      // Major axis direction (in XY plane, this is the rotation axis)
+      // Major axis is (cos(baseRot), sin(baseRot), 0)
+      const majorAxis = [c, s, 0];
+      const axisLen = Math.hypot(majorAxis[0], majorAxis[1], majorAxis[2]);
+      if (axisLen > 0.0001) {
+        const normalizedAxis = [
+          majorAxis[0] / axisLen,
+          majorAxis[1] / axisLen,
+          majorAxis[2] / axisLen,
+        ];
 
-          // Apply rotation
-          p = [
-            m00 * p[0] + m01 * p[1] + m02 * p[2],
-            m10 * p[0] + m11 * p[1] + m12 * p[2],
-            m20 * p[0] + m21 * p[1] + m22 * p[2],
-          ];
+        // Rotation around major axis using Rodrigues' rotation formula
+        const ct = Math.cos(ellipseTiltRad);
+        const st = Math.sin(ellipseTiltRad);
+        const oneMinusCt = 1 - ct;
+
+        // Rotation matrix components
+        const m00 = ct + normalizedAxis[0] * normalizedAxis[0] * oneMinusCt;
+        const m01 =
+          normalizedAxis[0] * normalizedAxis[1] * oneMinusCt -
+          normalizedAxis[2] * st;
+        const m02 =
+          normalizedAxis[0] * normalizedAxis[2] * oneMinusCt +
+          normalizedAxis[1] * st;
+        const m10 =
+          normalizedAxis[1] * normalizedAxis[0] * oneMinusCt +
+          normalizedAxis[2] * st;
+        const m11 = ct + normalizedAxis[1] * normalizedAxis[1] * oneMinusCt;
+        const m12 =
+          normalizedAxis[1] * normalizedAxis[2] * oneMinusCt -
+          normalizedAxis[0] * st;
+        const m20 =
+          normalizedAxis[2] * normalizedAxis[0] * oneMinusCt -
+          normalizedAxis[1] * st;
+        const m21 =
+          normalizedAxis[2] * normalizedAxis[1] * oneMinusCt +
+          normalizedAxis[0] * st;
+        const m22 = ct + normalizedAxis[2] * normalizedAxis[2] * oneMinusCt;
+
+        // Apply rotation
+        const pBefore = [...p];
+        p = [
+          m00 * p[0] + m01 * p[1] + m02 * p[2],
+          m10 * p[0] + m11 * p[1] + m12 * p[2],
+          m20 * p[0] + m21 * p[1] + m22 * p[2],
+        ];
+
+        // Debug: log first point transformation for ellipseTiltDeg 0 or 90
+        if (
+          th === thetaStart &&
+          (Math.abs(ellipseTiltDeg) < 0.1 ||
+            Math.abs(ellipseTiltDeg - 90) < 0.1)
+        ) {
+          console.log(
+            `[Rotation Debug] ellipseTiltDeg: ${ellipseTiltDeg}°, before: [${pBefore[0].toFixed(
+              2
+            )}, ${pBefore[1].toFixed(2)}, ${pBefore[2].toFixed(
+              2
+            )}], after: [${p[0].toFixed(2)}, ${p[1].toFixed(2)}, ${p[2].toFixed(
+              2
+            )}], majorAxis: [${normalizedAxis[0].toFixed(
+              2
+            )}, ${normalizedAxis[1].toFixed(2)}, ${normalizedAxis[2].toFixed(
+              2
+            )}]`
+          );
         }
       }
 
@@ -498,6 +535,9 @@ export default function GlowAnimation({
           easedNormalizedTime = 1.0;
         }
 
+        const metrics = pathMetricsRef.current.get(path.id);
+        const pathLength = metrics?.pathLength || 1.0;
+
         drawSpark({
           gl,
           canvas,
@@ -506,6 +546,7 @@ export default function GlowAnimation({
           globalConfig: cfg,
           pathConfig: pathWithAutoEllipse,
           easedNormalizedTime,
+          totalArcPx: pathLength,
         });
       }
 
