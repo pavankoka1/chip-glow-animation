@@ -32,7 +32,7 @@ export default function GlowAnimation({
 
   const applyEasingSpark = (t) => {
     const t1 = 1 - t;
-    return 1 - Math.pow(t1, 3);
+    return 1 - Math.pow(t1, 2.25);
   };
 
   const applyEasingCircle = (t) => {
