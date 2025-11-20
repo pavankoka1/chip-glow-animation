@@ -18,6 +18,11 @@
 import { useEffect, useRef } from "react";
 import useFps from "../hooks/useFps";
 import { disposeSpark, drawSpark } from "./animation/Spark";
+import {
+  computeCirclePathLength,
+  disposeSparkCircle,
+  drawSparkCircle,
+} from "./animation/SparkCircle";
 import { CAMERA_DISTANCE, DEFAULT_CONFIG } from "./animation/constants";
 import { getAngleForVertex } from "./animation/utils";
 
@@ -34,72 +39,31 @@ export default function GlowAnimation({
   const pathMetricsRef = useRef(new Map());
   const lastTsRef = useRef(null);
   const accumulatedSecRef = useRef(0);
+  const loggedPathsRef = useRef(new Set());
   useFps({ sampleSize: 90 });
 
   const delayToSeconds = (v) =>
     typeof v === "number" && !Number.isNaN(v) ? (v > 20 ? v / 1000 : v) : 0;
   const degToRad = (d) => (d * Math.PI) / 180;
 
-  // Easing function: takes normalized time (0.0 to 1.0) and returns eased value (0.0 to 1.0)
-  // To change easing: Comment out the current return and uncomment the one you want
-  // Currently active: Linear (no easing)
-  const applyEasing = (t) => {
-    // Linear (no easing) - default
-    // return t;
+  // Easing functions: takes normalized time (0.0 to 1.0) and returns eased value (0.0 to 1.0)
+  // Separate easing for spark and circle animations
 
-    // Ease-out sine: 1 - Math.cos((x * Math.PI) / 2)
-    // return 1 - Math.cos((t * Math.PI) / 2);
-
-    // Ease-in sine: smooth acceleration
-    // return 1 - Math.cos((1 - t) * Math.PI / 2);
-
-    // Ease-in-out sine: smooth start and end
-    // return -(Math.cos(Math.PI * t) - 1) / 2;
-
-    // Ease-out cubic: smooth deceleration
-    // const t1 = 1 - t;
-    // return 1 - Math.pow(t1, 3);
-
-    // Ease-in cubic: smooth acceleration
-    // return t * t * t;
-
-    // Ease-in-out cubic: smooth start and end
-    // return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-
-    // Ease-out quad: gentle deceleration
+  // Easing for Spark animation: ease-out quad (gentle deceleration)
+  const applyEasingSpark = (t) => {
     const t1 = 1 - t;
     return 1 - t1 * t1;
+  };
 
-    // Ease-in quad: gentle acceleration
-    // return t * t;
+  // Easing for Circle animation: ease-in cubic (slow start, very fast at end)
+  const applyEasingCircle = (t) => {
+    // const t1 = 1 - t;
+    // return 1 - t1 * t1;
+    // Ease-in cubic: smooth acceleration, very fast at the end
+    return t;
 
-    // Ease-in-out quad: gentle start and end
-    // return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-
-    // Ease-out expo: exponential deceleration
-    // return t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
-
-    // Ease-in expo: exponential acceleration
+    // Alternative: Ease-in expo (extremely fast at end)
     // return t <= 0 ? 0 : Math.pow(2, 10 * (t - 1));
-
-    // Ease-out back: overshoots slightly at end
-    // const c1 = 1.70158;
-    // const c3 = c1 + 1;
-    // const t1 = t - 1;
-    // return 1 + c3 * Math.pow(t1, 3) + c1 * Math.pow(t1, 2);
-
-    // Ease-in back: overshoots slightly at start
-    // const c1 = 1.70158;
-    // const c3 = c1 + 1;
-    // return c3 * t * t * t - c1 * t * t;
-
-    // Ease-in-out elastic: bouncy effect
-    // if (t <= 0) return 0;
-    // if (t >= 1) return 1;
-    // const c5 = (2 * Math.PI) / 3;
-    // return t < 0.5
-    //   ? -(Math.pow(2, 20 * t - 10) * Math.sin((20 * t - 11.125) * c5)) / 2
-    //   : (Math.pow(2, -20 * t + 10) * Math.sin((20 * t - 11.125) * c5)) / 2 + 1;
   };
 
   const cornerPoint = (vertex, rect) => {
@@ -115,6 +79,389 @@ export default function GlowAnimation({
       default:
         return [rect.right, rect.top];
     }
+  };
+
+  // Comprehensive 3D coordinate logging function
+  const log3DCoordinates = (
+    pathId,
+    a,
+    b,
+    rotAngle,
+    rotExtra,
+    thetaStart,
+    thetaEnd,
+    centerX,
+    centerY,
+    camDist,
+    tiltX,
+    tiltY,
+    depthAmp,
+    depthPhase,
+    ellipseTiltDeg,
+    rect
+  ) => {
+    console.log("\n" + "=".repeat(80));
+    console.log(`📐 3D COORDINATE SYSTEM ANALYSIS - Path ID: ${pathId}`);
+    console.log("=".repeat(80));
+
+    // Helper function to convert from internal (screen) coordinates to mathematical coordinates
+    // Internal: X+ = right, Y+ = down, Z+ = into screen
+    // Mathematical: X+ = right, Y+ = top, Z+ = out of screen
+    const toMathCoords = (x, y, z) => [x, -y, -z];
+
+    // 1. Coordinate System Explanation
+    console.log("\n📍 COORDINATE SYSTEM:");
+    console.log("   X-axis: Horizontal (left = negative, right = positive)");
+    console.log("   Y-axis: Vertical (top = positive, bottom = negative)");
+    console.log(
+      "   Z-axis: Depth (out of screen = positive, into screen = negative)"
+    );
+    console.log("   Origin (0,0,0): Center of the betspot in 3D space");
+
+    // 2. Betspot Information
+    console.log("\n🎯 BETSPOT INFORMATION:");
+    if (rect) {
+      const betspotCenter3D = [0, 0, 0]; // In 3D local space, center is at origin
+      const betspotCenter2D = [centerX, centerY]; // In 2D screen space
+      const centerMath = toMathCoords(
+        betspotCenter3D[0],
+        betspotCenter3D[1],
+        betspotCenter3D[2]
+      );
+      console.log(
+        `   Center (3D): [${centerMath[0]}, ${centerMath[1]}, ${centerMath[2]}]`
+      );
+      console.log(
+        `   Center (2D screen): [${betspotCenter2D[0].toFixed(
+          2
+        )}, ${betspotCenter2D[1].toFixed(2)}]`
+      );
+      console.log(`   Dimensions: ${rect.width}px × ${rect.height}px`);
+
+      // Calculate betspot vertices in 3D local space (before any transformations)
+      // Internal coordinates: Y+ down, so top has negative Y
+      const halfWidth = rect.width / 2;
+      const halfHeight = rect.height / 2;
+      const vertices3DInternal = {
+        TL: [-halfWidth, -halfHeight, 0], // Top-Left (internal: Y negative)
+        TR: [halfWidth, -halfHeight, 0], // Top-Right (internal: Y negative)
+        BR: [halfWidth, halfHeight, 0], // Bottom-Right (internal: Y positive)
+        BL: [-halfWidth, halfHeight, 0], // Bottom-Left (internal: Y positive)
+      };
+
+      console.log("\n   Vertices in 3D Space (mathematical coordinates):");
+      Object.entries(vertices3DInternal).forEach(([label, coords]) => {
+        const mathCoords = toMathCoords(coords[0], coords[1], coords[2]);
+        console.log(
+          `     ${label}: [${mathCoords[0].toFixed(2)}, ${mathCoords[1].toFixed(
+            2
+          )}, ${mathCoords[2].toFixed(2)}]`
+        );
+      });
+
+      console.log("\n   Plane of Betspot:");
+      console.log("     - Lies in the XY plane (z = 0)");
+      const normalMath = toMathCoords(0, 0, 1);
+      console.log(
+        `     - Normal vector: [${normalMath[0]}, ${normalMath[1]}, ${normalMath[2]}] (pointing along +Z axis, out of screen)`
+      );
+      console.log("     - The betspot is a flat rectangle in the XY plane");
+    } else {
+      console.log("   Betspot: Not available (no anchor element)");
+    }
+
+    // 3. Ellipse Parameters
+    console.log("\n🔵 ELLIPSE PARAMETERS:");
+    console.log(`   Semi-major axis (a): ${a.toFixed(2)}px`);
+    console.log(`   Semi-minor axis (b): ${b.toFixed(2)}px`);
+    console.log(
+      `   Theta start: ${((thetaStart * 180) / Math.PI).toFixed(
+        2
+      )}° (${thetaStart.toFixed(4)} rad)`
+    );
+    console.log(
+      `   Theta end: ${((thetaEnd * 180) / Math.PI).toFixed(
+        2
+      )}° (${thetaEnd.toFixed(4)} rad)`
+    );
+    console.log(
+      `   Arc span: ${(((thetaEnd - thetaStart) * 180) / Math.PI).toFixed(2)}°`
+    );
+
+    // 4. Ellipse in 3D Space
+    const baseRot = rotAngle + rotExtra;
+    const c = Math.cos(baseRot);
+    const s = Math.sin(baseRot);
+
+    // Major axis vector (in local XY plane before tilt)
+    const majorAxisLocal = [c, s, 0];
+    const majorAxisLength = Math.hypot(
+      majorAxisLocal[0],
+      majorAxisLocal[1],
+      majorAxisLocal[2]
+    );
+    const majorAxisNormalized =
+      majorAxisLength > 0.0001
+        ? [
+            majorAxisLocal[0] / majorAxisLength,
+            majorAxisLocal[1] / majorAxisLength,
+            majorAxisLocal[2] / majorAxisLength,
+          ]
+        : [1, 0, 0];
+
+    // Minor axis vector (perpendicular to major axis in XY plane, before tilt)
+    const minorAxisLocal = [-s, c, 0];
+    const minorAxisLength = Math.hypot(
+      minorAxisLocal[0],
+      minorAxisLocal[1],
+      minorAxisLocal[2]
+    );
+    const minorAxisNormalized =
+      minorAxisLength > 0.0001
+        ? [
+            minorAxisLocal[0] / minorAxisLength,
+            minorAxisLocal[1] / minorAxisLength,
+            minorAxisLocal[2] / minorAxisLength,
+          ]
+        : [0, 1, 0];
+
+    const majorAxisMath = toMathCoords(
+      majorAxisNormalized[0],
+      majorAxisNormalized[1],
+      majorAxisNormalized[2]
+    );
+    const minorAxisMath = toMathCoords(
+      minorAxisNormalized[0],
+      minorAxisNormalized[1],
+      minorAxisNormalized[2]
+    );
+
+    console.log("\n   Major Axis (before tilt):");
+    console.log(
+      `     Direction vector: [${majorAxisMath[0].toFixed(
+        4
+      )}, ${majorAxisMath[1].toFixed(4)}, ${majorAxisMath[2].toFixed(4)}]`
+    );
+    console.log(`     Length: ${a.toFixed(2)}px`);
+    console.log(`     Angle: ${((baseRot * 180) / Math.PI).toFixed(2)}°`);
+
+    console.log("\n   Minor Axis (before tilt):");
+    console.log(
+      `     Direction vector: [${minorAxisMath[0].toFixed(
+        4
+      )}, ${minorAxisMath[1].toFixed(4)}, ${minorAxisMath[2].toFixed(4)}]`
+    );
+    console.log(`     Length: ${b.toFixed(2)}px`);
+    console.log(
+      `     Angle: ${(((baseRot + Math.PI / 2) * 180) / Math.PI).toFixed(2)}°`
+    );
+
+    // 5. Ellipse Plane Tilt
+    const ellipseTiltRad = ((90 - ellipseTiltDeg) * Math.PI) / 180;
+    console.log("\n   Ellipse Tilt:");
+    console.log(`     Tilt angle: ${ellipseTiltDeg.toFixed(2)}°`);
+    console.log(
+      `     Rotation angle: ${((ellipseTiltRad * 180) / Math.PI).toFixed(
+        2
+      )}° around major axis`
+    );
+
+    // Calculate ellipse plane normal after tilt
+    // The ellipse plane normal is perpendicular to both major and minor axes
+    // After tilting, we need to rotate the minor axis around the major axis
+    if (majorAxisLength > 0.0001) {
+      const ct = Math.cos(ellipseTiltRad);
+      const st = Math.sin(ellipseTiltRad);
+      const oneMinusCt = 1 - ct;
+      const normalizedAxis = majorAxisNormalized;
+
+      // Rotate minor axis around major axis
+      const minorAxisAfterTilt = [
+        (ct + normalizedAxis[0] * normalizedAxis[0] * oneMinusCt) *
+          minorAxisLocal[0] +
+          (normalizedAxis[0] * normalizedAxis[1] * oneMinusCt -
+            normalizedAxis[2] * st) *
+            minorAxisLocal[1] +
+          (normalizedAxis[0] * normalizedAxis[2] * oneMinusCt +
+            normalizedAxis[1] * st) *
+            minorAxisLocal[2],
+        (normalizedAxis[1] * normalizedAxis[0] * oneMinusCt +
+          normalizedAxis[2] * st) *
+          minorAxisLocal[0] +
+          (ct + normalizedAxis[1] * normalizedAxis[1] * oneMinusCt) *
+            minorAxisLocal[1] +
+          (normalizedAxis[1] * normalizedAxis[2] * oneMinusCt -
+            normalizedAxis[0] * st) *
+            minorAxisLocal[2],
+        (normalizedAxis[2] * normalizedAxis[0] * oneMinusCt -
+          normalizedAxis[1] * st) *
+          minorAxisLocal[0] +
+          (normalizedAxis[2] * normalizedAxis[1] * oneMinusCt +
+            normalizedAxis[0] * st) *
+            minorAxisLocal[1] +
+          (ct + normalizedAxis[2] * normalizedAxis[2] * oneMinusCt) *
+            minorAxisLocal[2],
+      ];
+
+      // Calculate plane normal (cross product of major and minor axes)
+      const planeNormal = [
+        majorAxisNormalized[1] * minorAxisAfterTilt[2] -
+          majorAxisNormalized[2] * minorAxisAfterTilt[1],
+        majorAxisNormalized[2] * minorAxisAfterTilt[0] -
+          majorAxisNormalized[0] * minorAxisAfterTilt[2],
+        majorAxisNormalized[0] * minorAxisAfterTilt[1] -
+          majorAxisNormalized[1] * minorAxisAfterTilt[0],
+      ];
+      const normalLength = Math.hypot(
+        planeNormal[0],
+        planeNormal[1],
+        planeNormal[2]
+      );
+      const planeNormalNormalized =
+        normalLength > 0.0001
+          ? [
+              planeNormal[0] / normalLength,
+              planeNormal[1] / normalLength,
+              planeNormal[2] / normalLength,
+            ]
+          : [0, 0, 1];
+
+      const planeNormalMath = toMathCoords(
+        planeNormalNormalized[0],
+        planeNormalNormalized[1],
+        planeNormalNormalized[2]
+      );
+      const majorAxisAfterTiltMath = toMathCoords(
+        majorAxisNormalized[0],
+        majorAxisNormalized[1],
+        majorAxisNormalized[2]
+      );
+      const minorAxisAfterTiltMath = toMathCoords(
+        minorAxisAfterTilt[0],
+        minorAxisAfterTilt[1],
+        minorAxisAfterTilt[2]
+      );
+
+      console.log("\n   Ellipse Plane (after tilt):");
+      console.log(
+        `     Normal vector: [${planeNormalMath[0].toFixed(
+          4
+        )}, ${planeNormalMath[1].toFixed(4)}, ${planeNormalMath[2].toFixed(4)}]`
+      );
+      console.log(
+        `     Major axis (after tilt): [${majorAxisAfterTiltMath[0].toFixed(
+          4
+        )}, ${majorAxisAfterTiltMath[1].toFixed(
+          4
+        )}, ${majorAxisAfterTiltMath[2].toFixed(4)}]`
+      );
+      console.log(
+        `     Minor axis (after tilt): [${minorAxisAfterTiltMath[0].toFixed(
+          4
+        )}, ${minorAxisAfterTiltMath[1].toFixed(
+          4
+        )}, ${minorAxisAfterTiltMath[2].toFixed(4)}]`
+      );
+    }
+
+    // 6. Sample Ellipse Path Points in 3D
+    console.log("\n📊 ELLIPSE PATH POINTS IN 3D (sample points):");
+    const NUM_SAMPLES = 8;
+    const pathPoints3D = [];
+    for (let i = 0; i <= NUM_SAMPLES; i++) {
+      const t = i / NUM_SAMPLES;
+      const th = thetaStart + (thetaEnd - thetaStart) * t;
+
+      // Ellipse point in local coordinate system
+      const lx = a * Math.cos(th);
+      const ly = b * Math.sin(th);
+
+      // Apply rotation
+      const rx = c * lx - s * ly;
+      const ry = s * lx + c * ly;
+      const rz = depthAmp * Math.sin(th + depthPhase);
+      let p = [rx, ry, rz];
+
+      // Apply ellipse tilt
+      const ellipseTiltRad = ((90 - ellipseTiltDeg) * Math.PI) / 180;
+      const majorAxis = [c, s, 0];
+      const axisLen = Math.hypot(majorAxis[0], majorAxis[1], majorAxis[2]);
+      if (axisLen > 0.0001) {
+        const normalizedAxis = [
+          majorAxis[0] / axisLen,
+          majorAxis[1] / axisLen,
+          majorAxis[2] / axisLen,
+        ];
+        const ct = Math.cos(ellipseTiltRad);
+        const st = Math.sin(ellipseTiltRad);
+        const oneMinusCt = 1 - ct;
+
+        const m00 = ct + normalizedAxis[0] * normalizedAxis[0] * oneMinusCt;
+        const m01 =
+          normalizedAxis[0] * normalizedAxis[1] * oneMinusCt -
+          normalizedAxis[2] * st;
+        const m02 =
+          normalizedAxis[0] * normalizedAxis[2] * oneMinusCt +
+          normalizedAxis[1] * st;
+        const m10 =
+          normalizedAxis[1] * normalizedAxis[0] * oneMinusCt +
+          normalizedAxis[2] * st;
+        const m11 = ct + normalizedAxis[1] * normalizedAxis[1] * oneMinusCt;
+        const m12 =
+          normalizedAxis[1] * normalizedAxis[2] * oneMinusCt -
+          normalizedAxis[0] * st;
+        const m20 =
+          normalizedAxis[2] * normalizedAxis[0] * oneMinusCt -
+          normalizedAxis[1] * st;
+        const m21 =
+          normalizedAxis[2] * normalizedAxis[1] * oneMinusCt +
+          normalizedAxis[0] * st;
+        const m22 = ct + normalizedAxis[2] * normalizedAxis[2] * oneMinusCt;
+
+        p = [
+          m00 * p[0] + m01 * p[1] + m02 * p[2],
+          m10 * p[0] + m11 * p[1] + m12 * p[2],
+          m20 * p[0] + m21 * p[1] + m22 * p[2],
+        ];
+      }
+
+      // Convert to mathematical coordinates for display
+      const pointMath = toMathCoords(p[0], p[1], p[2]);
+      pathPoints3D.push({
+        theta: th,
+        thetaDeg: ((th * 180) / Math.PI).toFixed(2),
+        point3D: pointMath,
+      });
+    }
+
+    pathPoints3D.forEach((pt, idx) => {
+      console.log(
+        `   Point ${idx} (θ=${pt.thetaDeg}°): [${pt.point3D[0].toFixed(
+          2
+        )}, ${pt.point3D[1].toFixed(2)}, ${pt.point3D[2].toFixed(2)}]`
+      );
+    });
+
+    // 7. Transformations
+    console.log("\n🔄 TRANSFORMATIONS:");
+    console.log(
+      `   Base rotation angle: ${((rotAngle * 180) / Math.PI).toFixed(2)}°`
+    );
+    console.log(
+      `   Extra rotation: ${((rotExtra * 180) / Math.PI).toFixed(2)}°`
+    );
+    console.log(
+      `   Total rotation: ${((baseRot * 180) / Math.PI).toFixed(2)}°`
+    );
+    console.log(`   Depth amplitude: ${depthAmp.toFixed(2)}`);
+    console.log(
+      `   Depth phase: ${((depthPhase * 180) / Math.PI).toFixed(2)}°`
+    );
+    console.log(`   Camera distance: ${camDist.toFixed(2)}px`);
+    console.log(`   Camera tilt X: ${((tiltX * 180) / Math.PI).toFixed(2)}°`);
+    console.log(`   Camera tilt Y: ${((tiltY * 180) / Math.PI).toFixed(2)}°`);
+
+    console.log("\n" + "=".repeat(80) + "\n");
   };
 
   const computePathLength = (
@@ -153,18 +500,6 @@ export default function GlowAnimation({
       // At 90°: minor axis is in XY plane (ellipse plane is horizontal, no rotation)
       // So we rotate by (90° - ellipseTiltDeg) around the major axis to tilt the ellipse plane
       const ellipseTiltRad = ((90 - ellipseTiltDeg) * Math.PI) / 180;
-
-      // Debug: log values for path computation
-      if (
-        Math.abs(ellipseTiltDeg) > 0.1 ||
-        Math.abs(ellipseTiltDeg - 90) < 0.1
-      ) {
-        console.log(
-          `[computePathLength] ellipseTiltDeg: ${ellipseTiltDeg}°, rotation angle: ${ellipseTiltRad}rad (${
-            (ellipseTiltRad * 180) / Math.PI
-          }°), baseRot: ${baseRot}rad`
-        );
-      }
 
       // Major axis direction (in XY plane, this is the rotation axis)
       // Major axis is (cos(baseRot), sin(baseRot), 0)
@@ -206,33 +541,21 @@ export default function GlowAnimation({
         const m22 = ct + normalizedAxis[2] * normalizedAxis[2] * oneMinusCt;
 
         // Apply rotation
-        const pBefore = [...p];
         p = [
           m00 * p[0] + m01 * p[1] + m02 * p[2],
           m10 * p[0] + m11 * p[1] + m12 * p[2],
           m20 * p[0] + m21 * p[1] + m22 * p[2],
         ];
 
-        // Debug: log first point transformation for ellipseTiltDeg 0 or 90
-        if (
-          th === thetaStart &&
-          (Math.abs(ellipseTiltDeg) < 0.1 ||
-            Math.abs(ellipseTiltDeg - 90) < 0.1)
-        ) {
-          console.log(
-            `[Rotation Debug] ellipseTiltDeg: ${ellipseTiltDeg}°, before: [${pBefore[0].toFixed(
-              2
-            )}, ${pBefore[1].toFixed(2)}, ${pBefore[2].toFixed(
-              2
-            )}], after: [${p[0].toFixed(2)}, ${p[1].toFixed(2)}, ${p[2].toFixed(
-              2
-            )}], majorAxis: [${normalizedAxis[0].toFixed(
-              2
-            )}, ${normalizedAxis[1].toFixed(2)}, ${normalizedAxis[2].toFixed(
-              2
-            )}]`
-          );
-        }
+        // Add perpendicular offset to create visible diversion from diagonal
+        // The offset is perpendicular to the major axis in the XY plane
+        // Magnitude is based on tilt angle to push ellipse away from diagonal
+        // Use the tilt angle directly (0° = no offset, 90° = max offset)
+        const tiltOffsetAmount = (ellipseTiltDeg / 90.0) * b * 0.3; // Scale with minor axis and tilt
+        // Perpendicular to major axis: rotate major axis by 90° in XY plane
+        const perpendicularDir = [-normalizedAxis[1], normalizedAxis[0]]; // Perpendicular in XY plane
+        p[0] += perpendicularDir[0] * tiltOffsetAmount;
+        p[1] += perpendicularDir[1] * tiltOffsetAmount;
       }
 
       // Apply camera tilt: rotate around X then around Y
@@ -339,100 +662,196 @@ export default function GlowAnimation({
       const activePaths = (cfg.paths || []).filter((p) => p.enabled !== false);
 
       for (const p of activePaths) {
-        const ellipseCfg = p.ellipse || cfg.ellipse;
-        const startDir = getAngleForVertex(p.startVertex);
-        const endDir = getAngleForVertex(p.endVertex);
-        let delta =
-          ((((endDir - startDir + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) %
-            (2 * Math.PI)) -
-          Math.PI;
-        let dir = Math.sign(delta) || 1;
-        const thetaStartLocal = 0.0;
-        const thetaEndLocal = Math.abs(delta || Math.PI);
-        const rotAngle = startDir;
+        // Check if this is a circle path
+        const isCirclePath =
+          p.type === "circle" || p.circleRadius !== undefined;
 
-        const cam = p.cameraDistance ?? cfg.cameraDistance ?? CAMERA_DISTANCE;
-        const tiltX = degToRad(p.viewTiltXDeg ?? cfg.viewTiltXDeg ?? 0);
-        const tiltY = degToRad(p.viewTiltYDeg ?? cfg.viewTiltYDeg ?? 0);
-        const depthAmp = p.depthAmplitude ?? cfg.depthAmplitude ?? 0;
-        const depthPhase = degToRad(p.depthPhaseDeg ?? cfg.depthPhaseDeg ?? 0);
-        const rotExtra = degToRad(p.ellipseRotationDeg ?? 0);
-        const ellipseTiltDeg = p.ellipseTiltDeg ?? cfg.ellipseTiltDeg ?? 0;
+        if (isCirclePath) {
+          // Handle circle path
+          // For circle paths: a = diagonal/2, b = circleRadius
+          // Ellipse is rotated 135° (3π/4) - major axis at 135° from positive x-axis
+          const ellipseCfg = p.ellipse || cfg.ellipse;
+          const rotAngle = (135 * Math.PI) / 180; // 3π/4 radians
 
-        let autoA = ellipseCfg?.a;
-        let bVal = ellipseCfg?.b ?? 0.0;
-        if (rect && autoA === undefined) {
-          // Default: a = 10px + (diagonal / 2)
-          const diagonal = Math.hypot(rect.width, rect.height);
-          autoA = diagonal / 2;
-          if (cfg.debug) {
-            console.log("[AutoA Calculation]", {
-              rectSize: `${rect.width}x${rect.height}`,
-              diagonal: diagonal.toFixed(2),
-              calculatedA: autoA.toFixed(2),
-            });
+          const circleRadius = p.circleRadius ?? 30;
+
+          // a should be calculated from betspot diagonal: a = diagonalLength / 2
+          // Ignore config ellipse.a value, always calculate from actual rect size
+          let autoA;
+          if (rect) {
+            const diagonal = Math.hypot(rect.width, rect.height);
+            autoA = diagonal / 2; // For 200x200 betspot: diagonal = 200√2, so a = 100√2 ≈ 141.4214
+          } else {
+            // Fallback: assume 200px betspot -> 100√2 ≈ 141.4214
+            autoA = 141.4214;
           }
-        } else if (autoA === undefined) {
-          autoA = 150; // fallback if no rect and no config
-        }
 
-        const prev = pathMetricsRef.current.get(p.id);
-        if (
-          !prev ||
-          prev.centerX !== centerX ||
-          prev.centerY !== centerY ||
-          prev.a !== autoA ||
-          prev.b !== bVal ||
-          prev.thetaEndLocal !== thetaEndLocal ||
-          prev.rotAngle !== rotAngle ||
-          prev.dir !== dir ||
-          prev.cam !== cam ||
-          prev.tiltX !== tiltX ||
-          prev.tiltY !== tiltY ||
-          prev.depthAmp !== depthAmp ||
-          prev.depthPhase !== depthPhase ||
-          prev.rotExtra !== rotExtra ||
-          prev.ellipseTiltDeg !== ellipseTiltDeg
-        ) {
-          const pathLength = computePathLength(
-            autoA,
-            bVal,
-            rotAngle,
-            rotExtra,
-            thetaStartLocal,
-            thetaEndLocal,
-            centerX,
-            centerY,
-            cam,
-            tiltX,
-            tiltY,
-            depthAmp,
-            depthPhase,
-            ellipseTiltDeg
-          );
-          pathMetricsRef.current.set(p.id, {
-            pathLength,
-            thetaEndLocal,
-            rotAngle,
-            dir,
-            centerX,
-            centerY,
-            a: autoA,
-            b: bVal,
-            cam,
-            tiltX,
-            tiltY,
-            depthAmp,
-            depthPhase,
-            rotExtra,
-            ellipseTiltDeg,
-          });
-          if (cfg.debug)
-            console.log("[SparkMetrics]", p.id, {
+          // b should equal circleRadius (minor axis)
+          const bVal = circleRadius;
+
+          // Get start vertex from path config (default to BR)
+          const startVertex = p.startVertex || "BR";
+
+          // Calculate rotation angle based on start vertex:
+          // BR or TL: 135° (3π/4) - major axis along y = -x (BR↔TL diagonal)
+          // BL or TR: 45° (π/4) - major axis along y = x (BL↔TR diagonal)
+          const dynamicRotAngle =
+            startVertex === "BR" || startVertex === "TL"
+              ? (135 * Math.PI) / 180 // 3π/4
+              : (45 * Math.PI) / 180; // π/4
+
+          const prev = pathMetricsRef.current.get(p.id);
+          if (
+            !prev ||
+            prev.centerX !== centerX ||
+            prev.centerY !== centerY ||
+            prev.a !== autoA ||
+            prev.b !== bVal ||
+            prev.rotAngle !== dynamicRotAngle ||
+            prev.circleRadius !== circleRadius ||
+            prev.startVertex !== startVertex ||
+            prev.isCircle !== true
+          ) {
+            // Debug logging disabled for performance
+            // Uncomment for debugging:
+            // if (p.id === 3) {
+            //   console.log(`[GlowAnimation] Calling computeCirclePathLength with a=${autoA.toFixed(4)}, b=${bVal}, circleRadius=${circleRadius}`);
+            // }
+            const pathResult = computeCirclePathLength(
+              autoA,
+              bVal,
+              dynamicRotAngle,
+              centerX,
+              centerY,
+              circleRadius,
+              rect,
+              startVertex
+            );
+            pathMetricsRef.current.set(p.id, {
+              pathLength: pathResult.pathLength,
+              startTheta: pathResult.startTheta,
+              meetingTheta: pathResult.meetingTheta,
+              rotAngle: dynamicRotAngle, // Use the dynamic rotation angle based on start vertex
+              centerX,
+              centerY,
               a: autoA,
               b: bVal,
-              pathLength,
+              circleRadius,
+              startVertex,
+              isCircle: true,
             });
+          }
+        } else {
+          // Handle regular ellipse path
+          const ellipseCfg = p.ellipse || cfg.ellipse;
+          const startDir = getAngleForVertex(p.startVertex);
+          const endDir = getAngleForVertex(p.endVertex);
+          let delta =
+            ((((endDir - startDir + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) %
+              (2 * Math.PI)) -
+            Math.PI;
+          let dir = Math.sign(delta) || 1;
+          const thetaStartLocal = 0.0;
+          const thetaEndLocal = Math.abs(delta || Math.PI);
+          const rotAngle = startDir;
+
+          const cam = p.cameraDistance ?? cfg.cameraDistance ?? CAMERA_DISTANCE;
+          const tiltX = degToRad(p.viewTiltXDeg ?? cfg.viewTiltXDeg ?? 0);
+          const tiltY = degToRad(p.viewTiltYDeg ?? cfg.viewTiltYDeg ?? 0);
+          const depthAmp = p.depthAmplitude ?? cfg.depthAmplitude ?? 0;
+          const depthPhase = degToRad(
+            p.depthPhaseDeg ?? cfg.depthPhaseDeg ?? 0
+          );
+          const rotExtra = degToRad(p.ellipseRotationDeg ?? 0);
+          const ellipseTiltDeg = p.ellipseTiltDeg ?? cfg.ellipseTiltDeg ?? 0;
+
+          let autoA = ellipseCfg?.a;
+          let bVal = ellipseCfg?.b ?? 0.0;
+          if (rect && autoA === undefined) {
+            // Default: a = 10px + (diagonal / 2)
+            const diagonal = Math.hypot(rect.width, rect.height);
+            autoA = diagonal / 2;
+          } else if (autoA === undefined) {
+            autoA = 150; // fallback if no rect and no config
+          }
+
+          const prev = pathMetricsRef.current.get(p.id);
+          if (
+            !prev ||
+            prev.centerX !== centerX ||
+            prev.centerY !== centerY ||
+            prev.a !== autoA ||
+            prev.b !== bVal ||
+            prev.thetaEndLocal !== thetaEndLocal ||
+            prev.rotAngle !== rotAngle ||
+            prev.dir !== dir ||
+            prev.cam !== cam ||
+            prev.tiltX !== tiltX ||
+            prev.tiltY !== tiltY ||
+            prev.depthAmp !== depthAmp ||
+            prev.depthPhase !== depthPhase ||
+            prev.rotExtra !== rotExtra ||
+            prev.ellipseTiltDeg !== ellipseTiltDeg ||
+            prev.isCircle === true
+          ) {
+            const pathLength = computePathLength(
+              autoA,
+              bVal,
+              rotAngle,
+              rotExtra,
+              thetaStartLocal,
+              thetaEndLocal,
+              centerX,
+              centerY,
+              cam,
+              tiltX,
+              tiltY,
+              depthAmp,
+              depthPhase,
+              ellipseTiltDeg
+            );
+            pathMetricsRef.current.set(p.id, {
+              pathLength,
+              thetaEndLocal,
+              rotAngle,
+              dir,
+              centerX,
+              centerY,
+              a: autoA,
+              b: bVal,
+              cam,
+              tiltX,
+              tiltY,
+              depthAmp,
+              depthPhase,
+              rotExtra,
+              ellipseTiltDeg,
+              isCircle: false,
+            });
+
+            // Log 3D coordinates when path configuration changes
+            if (!loggedPathsRef.current.has(p.id)) {
+              log3DCoordinates(
+                p.id,
+                autoA,
+                bVal,
+                rotAngle,
+                rotExtra,
+                thetaStartLocal,
+                thetaEndLocal,
+                centerX,
+                centerY,
+                cam,
+                tiltX,
+                tiltY,
+                depthAmp,
+                depthPhase,
+                ellipseTiltDeg,
+                rect
+              );
+              loggedPathsRef.current.add(p.id);
+            }
+          }
         }
       }
 
@@ -460,7 +879,8 @@ export default function GlowAnimation({
           1.0,
           Math.max(0.0, elapsed / Math.max(durationSec, 0.0001))
         );
-        let easedNormalizedTime = applyEasing(normalizedTime);
+        // Use spark easing for regular ellipse paths
+        let easedNormalizedTime = applyEasingSpark(normalizedTime);
 
         // Ensure eased time reaches 1.0 when normalized time is 1.0 (for completion)
         // This prevents lingering dots when easing functions approach 1.0 asymptotically
@@ -502,20 +922,9 @@ export default function GlowAnimation({
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBufferRef.current);
 
       for (const path of activePaths) {
-        const ellipseCfg = path.ellipse || cfg.ellipse;
-        let autoA = ellipseCfg?.a;
-        let bVal = ellipseCfg?.b ?? 0.0;
-        if (rect && autoA === undefined) {
-          // Default: a = 10px + (diagonal / 2)
-          const diagonal = Math.hypot(rect.width, rect.height);
-          autoA = 10 + diagonal / 2;
-        } else if (autoA === undefined) {
-          autoA = 150; // fallback if no rect and no config
-        }
-        const pathWithAutoEllipse = {
-          ...path,
-          ellipse: { ...(path.ellipse || {}), a: autoA, b: bVal },
-        };
+        // Check if this is a circle path
+        const isCirclePath =
+          path.type === "circle" || path.circleRadius !== undefined;
 
         // Calculate eased normalized time for this path
         const delayRaw = path.delay || 0;
@@ -527,10 +936,12 @@ export default function GlowAnimation({
           1.0,
           Math.max(0.0, elapsed / Math.max(durationSec, 0.0001))
         );
-        let easedNormalizedTime = applyEasing(normalizedTime);
+        // Use different easing for circle vs spark animations
+        let easedNormalizedTime = isCirclePath
+          ? applyEasingCircle(normalizedTime)
+          : applyEasingSpark(normalizedTime);
 
         // Ensure eased time reaches 1.0 when normalized time is 1.0 (for completion)
-        // This prevents lingering dots when easing functions approach 1.0 asymptotically
         if (normalizedTime >= 1.0) {
           easedNormalizedTime = 1.0;
         }
@@ -538,16 +949,73 @@ export default function GlowAnimation({
         const metrics = pathMetricsRef.current.get(path.id);
         const pathLength = metrics?.pathLength || 1.0;
 
-        drawSpark({
-          gl,
-          canvas,
-          anchorCenter: [centerX, centerY],
-          timeNowSec: currentTimeSec,
-          globalConfig: cfg,
-          pathConfig: pathWithAutoEllipse,
-          easedNormalizedTime,
-          totalArcPx: pathLength,
-        });
+        if (isCirclePath) {
+          // Draw circle path
+          // For circle paths: a = diagonal/2, b = circleRadius
+          const ellipseCfg = path.ellipse || cfg.ellipse;
+          const circleRadius = path.circleRadius ?? 30;
+
+          // a should be calculated from betspot diagonal: a = diagonalLength / 2
+          // Ignore config ellipse.a value, always calculate from actual rect size
+          let autoA;
+          if (rect) {
+            const diagonal = Math.hypot(rect.width, rect.height);
+            autoA = diagonal / 2; // For 200x200 betspot: diagonal = 200√2, so a = 100√2 ≈ 141.4214
+          } else {
+            // Fallback: assume 200px betspot -> 100√2 ≈ 141.4214
+            autoA = 141.4214;
+          }
+
+          // b should equal circleRadius (minor axis)
+          const bVal = circleRadius;
+
+          const pathWithAutoEllipse = {
+            ...path,
+            ellipse: { ...(path.ellipse || {}), a: autoA, b: bVal },
+          };
+
+          const metrics = pathMetricsRef.current.get(path.id);
+          drawSparkCircle({
+            gl,
+            canvas,
+            anchorCenter: [centerX, centerY],
+            timeNowSec: currentTimeSec,
+            globalConfig: cfg,
+            pathConfig: pathWithAutoEllipse,
+            easedNormalizedTime,
+            totalArcPx: metrics?.pathLength || pathLength,
+            startTheta: metrics?.startTheta ?? 0,
+            meetingTheta: metrics?.meetingTheta ?? 0,
+            rotAngle: metrics?.rotAngle, // Pass the dynamic rotation angle from metrics
+          });
+        } else {
+          // Draw regular ellipse path
+          const ellipseCfg = path.ellipse || cfg.ellipse;
+          let autoA = ellipseCfg?.a;
+          let bVal = ellipseCfg?.b ?? 0.0;
+          if (rect && autoA === undefined) {
+            // Default: a = 10px + (diagonal / 2)
+            const diagonal = Math.hypot(rect.width, rect.height);
+            autoA = 10 + diagonal / 2;
+          } else if (autoA === undefined) {
+            autoA = 150; // fallback if no rect and no config
+          }
+          const pathWithAutoEllipse = {
+            ...path,
+            ellipse: { ...(path.ellipse || {}), a: autoA, b: bVal },
+          };
+
+          drawSpark({
+            gl,
+            canvas,
+            anchorCenter: [centerX, centerY],
+            timeNowSec: currentTimeSec,
+            globalConfig: cfg,
+            pathConfig: pathWithAutoEllipse,
+            easedNormalizedTime,
+            totalArcPx: pathLength,
+          });
+        }
       }
 
       animationIdRef[0] = requestAnimationFrame(animate);
@@ -556,6 +1024,7 @@ export default function GlowAnimation({
     if (isPlaying && !animationIdRef[0]) {
       lastTsRef.current = null;
       accumulatedSecRef.current = 0;
+      loggedPathsRef.current.clear(); // Reset logged paths when animation restarts
       animationIdRef[0] = requestAnimationFrame(animate);
     } else if (!isPlaying && animationIdRef[0]) {
       cancelAnimationFrame(animationIdRef[0]);
@@ -576,6 +1045,7 @@ export default function GlowAnimation({
       if (glRef.current) {
         try {
           disposeSpark(glRef.current);
+          disposeSparkCircle(glRef.current);
         } catch {}
       }
     };

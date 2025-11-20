@@ -227,34 +227,26 @@ export function drawSpark({
   gl.uniform1f(u.fadeWindowLocation, merged.fadeWindow);
   gl.uniform1f(u.easedNormalizedTimeLocation, easedNormalizedTime);
   gl.uniform1f(u.ellipseTiltDegLocation, merged.ellipseTiltDeg);
-  
-  // Debug: log ellipseTiltDeg value
-  if (pathConfig.id === 1 || pathConfig.id === 2) {
-    const rotationAngle = (90 - merged.ellipseTiltDeg) * Math.PI / 180;
-    console.log(`[Path ${pathConfig.id}] ellipseTiltDeg:`, merged.ellipseTiltDeg, 
-      '→ rotation angle (rad):', rotationAngle.toFixed(4),
-      '→ rotation angle (deg):', (rotationAngle * 180 / Math.PI).toFixed(2),
-      '→ cos:', Math.cos(rotationAngle).toFixed(4),
-      '→ sin:', Math.sin(rotationAngle).toFixed(4));
-  }
 
   // Set colors - ensure we have valid hex strings, with caching
-  const sparkColorHex = typeof merged.sparkColor === 'string' ? merged.sparkColor : "#ffffe0";
-  const glowColorHex = typeof merged.glowColor === 'string' ? merged.glowColor : "#fffba4";
-  
+  const sparkColorHex =
+    typeof merged.sparkColor === "string" ? merged.sparkColor : "#ffffe0";
+  const glowColorHex =
+    typeof merged.glowColor === "string" ? merged.glowColor : "#fffba4";
+
   // Cache color conversions to avoid regex on every frame
   let sparkRgb = colorCache.get(sparkColorHex);
   if (!sparkRgb) {
     sparkRgb = hexToRgb(sparkColorHex);
     colorCache.set(sparkColorHex, sparkRgb);
   }
-  
+
   let glowRgb = colorCache.get(glowColorHex);
   if (!glowRgb) {
     glowRgb = hexToRgb(glowColorHex);
     colorCache.set(glowColorHex, glowRgb);
   }
-  
+
   gl.uniform3f(u.sparkColorLocation, sparkRgb[0], sparkRgb[1], sparkRgb[2]);
   gl.uniform3f(u.glowColorLocation, glowRgb[0], glowRgb[1], glowRgb[2]);
 

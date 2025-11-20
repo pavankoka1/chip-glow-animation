@@ -29,7 +29,7 @@ export default function Home() {
         endVertex: "TL",
         delay: 0,
         length: 100,
-        ellipseTiltDeg: 45,
+        ellipseTiltDeg: -45,
         enabled: true,
       },
       {
@@ -41,22 +41,28 @@ export default function Home() {
         ellipseTiltDeg: 0,
         enabled: true,
       },
-      // {
-      //   id: 3,
-      //   startVertex: "BR",
-      //   endVertex: "TL",
-      //   delay: 900,
-      //   length: 100,
-      //   enabled: true,
-      // },
-      // {
-      //   id: 4,
-      //   startVertex: "BL",
-      //   endVertex: "TR",
-      //   delay: 1200,
-      //   length: 100,
-      //   enabled: true,
-      // },
+      // SparkCircle example: starts from BR, travels in ellipse to circle entry point,
+      // then rotates around circle and spirals to center
+      {
+        id: 3,
+        type: "circle",
+        startVertex: "BR",
+        circleRadius: 30,
+        delay: 700,
+        animationTimeMs: 800,
+        length: 100,
+        enabled: true,
+      },
+      {
+        id: 4,
+        type: "circle",
+        startVertex: "BL",
+        circleRadius: 30,
+        delay: 900,
+        animationTimeMs: 800,
+        length: 100,
+        enabled: true,
+      },
     ],
   });
 

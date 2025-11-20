@@ -105,6 +105,15 @@ vec3 ellipsePositionLocal(float thetaLocal) {
     m20 * p.x + m21 * p.y + m22 * p.z
   );
   
+  // Add perpendicular offset to create visible diversion from diagonal
+  // The offset is perpendicular to the major axis in the XY plane
+  // Magnitude is based on tilt angle to push ellipse away from diagonal
+  // Use the tilt angle directly (0° = no offset, 90° = max offset)
+  float tiltOffsetAmount = (ellipseTiltDeg / 90.0) * u_b * 0.3; // Scale with minor axis and tilt
+  // Perpendicular to major axis: rotate major axis by 90° in XY plane
+  vec2 perpendicularDir = vec2(-majorAxis.y, majorAxis.x); // Perpendicular in XY plane
+  p.xy += perpendicularDir * tiltOffsetAmount;
+  
   // Apply camera tilt: rotate around X then around Y
   float cx = cos(u_tiltX), sx = sin(u_tiltX);
   float cy = cos(u_tiltY), sy = sin(u_tiltY);
