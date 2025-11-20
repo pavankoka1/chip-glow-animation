@@ -39,7 +39,7 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
 
   const update = (partial) => setDraft({ ...draft, ...partial });
 
-  // Global handlers
+  
   const handleAnimationTimeChange = (_e, v) => update({ animationTimeMs: v });
   const handleGlowRadiusChange = (_e, v) => update({ glowRadius: v });
   const handleHeadRadiusChange = (_e, v) => update({ headRadius: v });
@@ -52,7 +52,7 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
   const handleSparkColorChange = (e) => update({ sparkColor: e.target.value });
   const handleGlowColorChange = (e) => update({ glowColor: e.target.value });
 
-  // Path handlers
+  
   const setPath = (id, patch) => {
     setDraft({
       ...draft,
@@ -65,6 +65,7 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
   const handleAddPath = () => {
     const newPath = {
       id: Date.now(),
+      type: "spark",
       startVertex: "TR",
       endVertex: "BL",
       delay: 0,
@@ -336,7 +337,6 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
             />
           </Box>
 
-          {/* Paths Section */}
           <Box>
             <Box
               display="flex"
@@ -389,9 +389,13 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
                     mb={1.25}
                   >
                     <Chip
-                      label={`Start ${path.startVertex || "TR"} → End ${
-                        path.endVertex || "BL"
-                      }`}
+                      label={
+                        path.type === "circle"
+                          ? `Circle: ${path.startVertex || "BR"}`
+                          : `Spark: ${path.startVertex || "TR"} → ${
+                              path.endVertex || "BL"
+                            }`
+                      }
                       onClick={() => handleTogglePath(path.id)}
                       size="small"
                       sx={{
@@ -428,12 +432,44 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
                         gutterBottom
                         sx={{ color: "#FFD700", fontWeight: 500 }}
                       >
-                        Start Vertex
+                        Path Type
                       </Typography>
-                      <VertexPicker
-                        value={path.startVertex || "TR"}
-                        onChange={(v) => setPath(path.id, { startVertex: v })}
-                      />
+                      <Box display="flex" gap={1}>
+                        <Button
+                          variant={path.type === "spark" || !path.type ? "contained" : "outlined"}
+                          onClick={() => setPath(path.id, { type: "spark" })}
+                          size="small"
+                          sx={{
+                            minWidth: 0,
+                            px: 2,
+                            borderColor: "rgba(255, 215, 0, 0.4)",
+                            color: path.type === "spark" || !path.type ? "#000" : "#FFD700",
+                            backgroundColor: path.type === "spark" || !path.type ? "#FFD700" : "transparent",
+                            "&:hover": {
+                              backgroundColor: path.type === "spark" || !path.type ? "#FFA500" : "rgba(255, 215, 0, 0.1)",
+                            },
+                          }}
+                        >
+                          Spark
+                        </Button>
+                        <Button
+                          variant={path.type === "circle" ? "contained" : "outlined"}
+                          onClick={() => setPath(path.id, { type: "circle" })}
+                          size="small"
+                          sx={{
+                            minWidth: 0,
+                            px: 2,
+                            borderColor: "rgba(255, 215, 0, 0.4)",
+                            color: path.type === "circle" ? "#000" : "#FFD700",
+                            backgroundColor: path.type === "circle" ? "#FFD700" : "transparent",
+                            "&:hover": {
+                              backgroundColor: path.type === "circle" ? "#FFA500" : "rgba(255, 215, 0, 0.1)",
+                            },
+                          }}
+                        >
+                          Circle
+                        </Button>
+                      </Box>
                     </Box>
                     <Box>
                       <Typography
@@ -441,13 +477,48 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
                         gutterBottom
                         sx={{ color: "#FFD700", fontWeight: 500 }}
                       >
-                        End Vertex
+                        Start Vertex
                       </Typography>
                       <VertexPicker
-                        value={path.endVertex || "BL"}
-                        onChange={(v) => setPath(path.id, { endVertex: v })}
+                        value={path.startVertex || (path.type === "circle" ? "BR" : "TR")}
+                        onChange={(v) => setPath(path.id, { startVertex: v })}
                       />
                     </Box>
+                    {path.type !== "circle" && (
+                      <Box>
+                        <Typography
+                          variant="body2"
+                          gutterBottom
+                          sx={{ color: "#FFD700", fontWeight: 500 }}
+                        >
+                          End Vertex
+                        </Typography>
+                        <VertexPicker
+                          value={path.endVertex || "BL"}
+                          onChange={(v) => setPath(path.id, { endVertex: v })}
+                        />
+                      </Box>
+                    )}
+                    {path.type === "circle" && (
+                      <Box>
+                        <Typography
+                          variant="body2"
+                          gutterBottom
+                          sx={{ color: "#FFD700", fontWeight: 500 }}
+                        >
+                          Circle Radius (px)
+                        </Typography>
+                        <Slider
+                          size="small"
+                          value={path.circleRadius ?? 25}
+                          onChange={(_e, v) => setPath(path.id, { circleRadius: v })}
+                          min={10}
+                          max={100}
+                          step={1}
+                          valueLabelDisplay="auto"
+                        />
+                      </Box>
+                    )}
 
                     <Box>
                       <Typography

@@ -7,14 +7,14 @@ export const VERTEX_LABELS = [
 ];
 
 export const DEFAULT_CONFIG = {
-  animationTimeMs: 1200,
-  glowRadius: 20,
-  ellipse: { b: 12 }, // a will be auto-calculated as diagonal / 2, b is semi-minor in px
+  animationTimeMs: 800,
+  glowRadius: 30,
+  ellipse: { b: 20 }, // a will be auto-calculated as diagonal / 2, b is semi-minor in px
   headRadius: 10,      // radius at head (px)
   tailRadius: 2,       // radius at tail (px)
-  length: 300,
-  sparkColor: "#ffffe0", // default spark color
-  glowColor: "#fffba4",  // default glow color
+  length: 80,
+  sparkColor: "#ffff00", // default spark color
+  glowColor: "#fff391",  // default glow color
   // Internal/advanced settings (not in config modal)
   cameraDistance: 4000,
   viewTiltXDeg: 0,

@@ -144,18 +144,6 @@ export function computeCirclePathLength(
   rect = null,
   startVertex = "BR" // Default to Bottom-Right
 ) {
-  // Performance: Only log in development mode
-  const DEBUG = startVertex === "BL"; // Enable debug for BL to diagnose the issue
-  if (DEBUG) {
-    console.log(
-      `[computeCirclePathLength] Received: a=${a.toFixed(4)}, b=${b.toFixed(
-        4
-      )}, circleRadius=${circleRadius}, rect=${
-        rect ? `${rect.width}x${rect.height}` : "null"
-      }`
-    );
-  }
-
   const SAMPLES = 128; // Reduced from 256 for better performance, still accurate
 
   // Ellipse parameters:
@@ -299,9 +287,6 @@ export function computeCirclePathLength(
     verifyMeetingY_math - meetingPointY
   );
 
-  // Also get screen coords for display
-  let [verifyMeetingX, verifyMeetingY] = getEllipsePos(MEETING_THETA);
-
   // If error is large, try other theta values (optimized for performance)
   if (meetingError > 1.0) {
     // Search around the meeting angle
@@ -328,10 +313,6 @@ export function computeCirclePathLength(
       if (testError < meetingError) {
         meetingError = testError;
         MEETING_THETA = normalizedTheta;
-        // Update screen coords for display
-        const [testX_screen, testY_screen] = getEllipsePos(normalizedTheta);
-        verifyMeetingX = testX_screen;
-        verifyMeetingY = testY_screen;
         if (meetingError < 0.5) break; // Early exit if good enough
       }
     }
@@ -376,13 +357,6 @@ export function computeCirclePathLength(
     }
 
     START_THETA = bestTheta;
-    if (DEBUG) {
-      console.log(
-        `  BL: Found theta=${((START_THETA * 180) / Math.PI).toFixed(
-          2
-        )}° with error=${bestError.toFixed(2)}px`
-      );
-    }
   } else {
     // For BR and other vertices, use the existing approach that works
     START_THETA = findThetaFromPoint(
@@ -411,25 +385,9 @@ export function computeCirclePathLength(
     (distFromCenter < 50 || isOnCircleInitial) &&
     expectedDistFromCenter > 100
   ) {
-    if (DEBUG) {
-      console.warn(
-        `⚠️ BL initial search found point near center/on circle (${verifyStartX_math.toFixed(
-          2
-        )}, ${verifyStartY_math.toFixed(
-          2
-        )}), distance: ${distFromCenter.toFixed(
-          2
-        )}px, isOnCircle: ${isOnCircleInitial}, but target is far from center (${expectedDistFromCenter.toFixed(
-          2
-        )}px). Forcing exhaustive re-search.`
-      );
-    }
     // Force a re-search by setting error high
     startError = 1000; // Force exhaustive search
   }
-
-  // Also get screen coords for display
-  let [verifyStartX, verifyStartY] = getEllipsePos(START_THETA);
 
   // If error is large, search more thoroughly (optimized for performance)
   // For BL, always do thorough search even if error seems small (might be near center)
@@ -552,27 +510,10 @@ export function computeCirclePathLength(
           (currentBestDist < 50 && expectedDistFromCenter > 100)));
 
     if (shouldDoExhaustive) {
-      if (DEBUG && startVertex === "BL") {
-        console.log(
-          `🔍 Running exhaustive search for BL: bestError=${bestError.toFixed(
-            2
-          )}, currentBestDist=${currentBestDist.toFixed(
-            2
-          )}, isOnCircle=${isCurrentBestOnCircle}`
-        );
-      }
-
       // For BL, we MUST find a point far from center (>100px), not near center or on circle
       // Reset bestError if current best is too close to center
       if (startVertex === "BL") {
         if (isCurrentBestOnCircle || currentBestDist < 100) {
-          if (DEBUG) {
-            console.log(
-              `  ⚠️ Current best is too close to center (${currentBestDist.toFixed(
-                2
-              )}px) or on circle, resetting bestError to force finding point far from center (>100px)`
-            );
-          }
           bestError = Infinity; // Force finding a new point
         }
       }
@@ -627,19 +568,6 @@ export function computeCirclePathLength(
         // For BL, we require distance > 100px from center
         const isOnCircle = Math.abs(distFromCenter - circleRadius) < 5;
         if ((distFromCenter < 100 || isOnCircle) && distFromTarget > 50) {
-          if (DEBUG) {
-            console.warn(
-              `⚠️ BL search found point near center (${finalX.toFixed(
-                2
-              )}, ${finalY.toFixed(
-                2
-              )}), distance from center: ${distFromCenter.toFixed(2)}px`
-            );
-            console.warn(
-              `  This suggests the search converged to wrong solution. Trying alternative search...`
-            );
-          }
-
           // Try searching specifically in the 3rd quadrant with very fine steps
           const quadrant3Start = Math.PI;
           const quadrant3End = (3 * Math.PI) / 2;
@@ -682,17 +610,6 @@ export function computeCirclePathLength(
           ) {
             bestError = bestQuadrant3Error;
             bestTheta = bestQuadrant3Theta;
-            if (DEBUG) {
-              const [newX, newY] = getEllipsePosMath(bestTheta);
-              console.log(
-                `  Found better solution in quadrant 3: theta=${(
-                  (bestTheta * 180) /
-                  Math.PI
-                ).toFixed(2)}°, point=(${newX.toFixed(2)}, ${newY.toFixed(
-                  2
-                )}), error=${bestError.toFixed(2)}px`
-              );
-            }
           }
         }
       }
@@ -705,120 +622,6 @@ export function computeCirclePathLength(
       verifyStartX_math_new - START_VERTEX_X,
       verifyStartY_math_new - START_VERTEX_Y
     );
-    // Update screen coords for display
-    const [verifyStartX_new, verifyStartY_new] = getEllipsePos(START_THETA);
-    verifyStartX = verifyStartX_new;
-    verifyStartY = verifyStartY_new;
-  }
-
-  // Debug logging - only in development mode
-  if (DEBUG) {
-    console.clear();
-    console.log("=== SPARK CIRCLE DEBUG ===");
-    console.log(`Ellipse Parameters:`);
-    console.log(
-      `  Semi-major axis a = ${a.toFixed(4)} (calculated as diagonal/2)`
-    );
-    if (rect) {
-      const diagonal = Math.hypot(rect.width, rect.height);
-      console.log(
-        `    Betspot: ${rect.width}x${
-          rect.height
-        }, diagonal = ${diagonal.toFixed(4)}, a = ${diagonal.toFixed(
-          4
-        )}/2 = ${a.toFixed(4)}`
-      );
-    }
-    console.log(
-      `  Semi-minor axis b = ${b.toFixed(
-        4
-      )} (equals circle radius = ${circleRadius})`
-    );
-    console.log(
-      `  Rotation angle = ${((rotAngleRad * 180) / Math.PI).toFixed(
-        2
-      )}° (3π/4 rad)`
-    );
-    console.log(`  Major axis direction: along y = -x`);
-    console.log(`Circle radius: ${circleRadius}`);
-    console.log(`Center: (${centerX.toFixed(2)}, ${centerY.toFixed(2)})`);
-    console.log(`\nPath Points:`);
-    if (rect) {
-      console.log(`Betspot size: ${rect.width}x${rect.height}`);
-    }
-    console.log(
-      `Start vertex (${startVertex}) (math coords, relative to center): (${START_VERTEX_X.toFixed(
-        2
-      )}, ${START_VERTEX_Y.toFixed(2)})`
-    );
-    const [startX_math, startY_math] = getEllipsePosMath(START_THETA);
-    console.log(
-      `Start theta: ${((START_THETA * 180) / Math.PI).toFixed(
-        2
-      )}° -> math: (${startX_math.toFixed(2)}, ${startY_math.toFixed(
-        2
-      )}), screen: (${(verifyStartX - centerX).toFixed(2)}, ${(
-        verifyStartY - centerY
-      ).toFixed(2)})`
-    );
-    console.log(`Start point error: ${startError.toFixed(4)}px`);
-    const [meetingX_math, meetingY_math] = getEllipsePosMath(MEETING_THETA);
-    console.log(
-      `Meeting theta: ${((MEETING_THETA * 180) / Math.PI).toFixed(
-        2
-      )}° -> math: (${meetingX_math.toFixed(2)}, ${meetingY_math.toFixed(
-        2
-      )}), screen: (${(verifyMeetingX - centerX).toFixed(2)}, ${(
-        verifyMeetingY - centerY
-      ).toFixed(2)})`
-    );
-    console.log(
-      `Expected meeting point: (${meetingPointX.toFixed(
-        2
-      )}, ${meetingPointY.toFixed(2)})`
-    );
-    console.log(`Meeting point error: ${meetingError.toFixed(4)}px`);
-
-    // Warn if start point error is too large
-    if (startError > 1.0) {
-      const [finalX_math, finalY_math] = getEllipsePosMath(START_THETA);
-      const distFromCenter = Math.hypot(finalX_math, finalY_math);
-      console.warn(
-        `⚠️ Start point calculation has large error! Expected ${startVertex} at (${START_VERTEX_X}, ${START_VERTEX_Y}), got (${finalX_math.toFixed(
-          2
-        )}, ${finalY_math.toFixed(2)}) in math coords`
-      );
-      console.warn(
-        `  Error: ${startError.toFixed(
-          2
-        )}px, Distance from center: ${distFromCenter.toFixed(2)}px, Theta: ${(
-          (START_THETA * 180) /
-          Math.PI
-        ).toFixed(2)}°`
-      );
-
-      // For BL, if we're near center, this is a critical issue
-      if (startVertex === "BL" && distFromCenter < 50) {
-        console.error(
-          `❌ CRITICAL: BL animation starting from center instead of BL vertex!`
-        );
-        console.error(
-          `  This will cause the animation to start from the wrong position.`
-        );
-      }
-    }
-
-    // If meeting point error is too large, warn
-    if (meetingError > 1.0) {
-      console.warn(
-        `⚠️ Meeting point calculation has large error! Expected (${meetingPointX}, ${meetingPointY}) in math coords, got (${meetingX_math.toFixed(
-          2
-        )}, ${meetingY_math.toFixed(2)}) in math coords`
-      );
-      console.warn(
-        `  This might cause the animation to not transition smoothly from ellipse to circle.`
-      );
-    }
   }
 
   // Pre-calculate path lengths and portions once (performance optimization)

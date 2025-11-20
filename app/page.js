@@ -25,6 +25,7 @@ export default function Home() {
     paths: [
       {
         id: 1,
+        type: "spark",
         startVertex: "BR",
         endVertex: "TL",
         delay: 0,
@@ -33,22 +34,19 @@ export default function Home() {
       },
       {
         id: 2,
+        type: "spark",
         startVertex: "BL",
         endVertex: "TR",
         delay: 400,
-        // length: 120,
-        ellipseTiltDeg: 0,
+        ellipseTiltDeg: 45,
         enabled: true,
       },
-      // SparkCircle example: starts from BR, travels in ellipse to circle entry point,
-      // then rotates around circle and spirals to center
       {
         id: 3,
         type: "circle",
         startVertex: "BR",
         circleRadius: 25,
-        delay: 950,
-        // length: 120,
+        delay: 650,
         enabled: true,
       },
       {
@@ -56,8 +54,7 @@ export default function Home() {
         type: "circle",
         startVertex: "BL",
         circleRadius: 25,
-        delay: 1050,
-        // length: 120,
+        delay: 750,
         enabled: true,
       },
     ],
@@ -70,8 +67,8 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-black">
-      <div className="relative">
+    <div className="flex min-h-screen w-full items-center justify-center bg-black">
+      <div className="relative flex items-center justify-center">
         <BetSpot ref={betspotRef} />
         <Chip />
       </div>
@@ -83,8 +80,6 @@ export default function Home() {
           onAnimationComplete={() => setIsPlaying(false)}
         />
       )}
-
-      {/* Play Button */}
       <IconButton
         onClick={() => setIsPlaying(!isPlaying)}
         sx={{
@@ -110,7 +105,6 @@ export default function Home() {
         )}
       </IconButton>
 
-      {/* Config Toggle Button */}
       <IconButton
         onClick={() => setConfigOpen(true)}
         sx={{
@@ -128,7 +122,6 @@ export default function Home() {
         <Settings />
       </IconButton>
 
-      {/* Config Modal */}
       <ConfigModal
         open={configOpen}
         onClose={() => setConfigOpen(false)}
