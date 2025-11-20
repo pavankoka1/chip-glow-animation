@@ -59,6 +59,12 @@ function getProgramBundle(gl) {
     circleRadiusLocation: gl.getUniformLocation(program, "u_circleRadius"),
     startThetaLocation: gl.getUniformLocation(program, "u_startTheta"),
     meetingThetaLocation: gl.getUniformLocation(program, "u_meetingTheta"),
+    ellipsePortionLocation: gl.getUniformLocation(program, "u_ellipsePortion"),
+    circlePortionLocation: gl.getUniformLocation(program, "u_circlePortion"),
+    meetingCircleAngleLocation: gl.getUniformLocation(
+      program,
+      "u_meetingCircleAngle"
+    ),
     overshootLocation: gl.getUniformLocation(program, "u_overshoot"),
     fadeWindowLocation: gl.getUniformLocation(program, "u_fadeWindow"),
     easedNormalizedTimeLocation: gl.getUniformLocation(
@@ -908,10 +914,15 @@ export function computeCirclePathLength(
     py0 = py;
   }
 
+  // Pre-compute values for shader optimization (reuse already computed values)
+  // Note: cachedMeetingCircleAngle was already computed above, so we use it
   return {
     pathLength: total,
     startTheta: START_THETA,
     meetingTheta: MEETING_THETA,
+    ellipsePortion: cachedEllipsePortion,
+    circlePortion: cachedCirclePortion,
+    meetingCircleAngle: cachedMeetingCircleAngle, // Use the already computed value
   };
 }
 
@@ -927,6 +938,9 @@ export function drawSparkCircle({
   startTheta,
   meetingTheta,
   rotAngle: providedRotAngle, // Rotation angle passed from GlowAnimation
+  ellipsePortion, // Precomputed ellipse portion (0.0 to 1.0)
+  circlePortion, // Precomputed circle portion (0.0 to 1.0)
+  meetingCircleAngle, // Precomputed meeting point angle on circle
 }) {
   if (!gl) return;
   const { program, attribs, uniforms: u } = getProgramBundle(gl);
@@ -993,6 +1007,10 @@ export function drawSparkCircle({
   const meetingThetaValue = meetingTheta ?? 0;
   gl.uniform1f(u.startThetaLocation, startThetaValue);
   gl.uniform1f(u.meetingThetaLocation, meetingThetaValue);
+  // Pass precomputed values for shader optimization
+  gl.uniform1f(u.ellipsePortionLocation, ellipsePortion ?? 0.5);
+  gl.uniform1f(u.circlePortionLocation, circlePortion ?? 0.5);
+  gl.uniform1f(u.meetingCircleAngleLocation, meetingCircleAngle ?? 0);
   gl.uniform1f(u.overshootLocation, merged.overshoot);
   gl.uniform1f(u.fadeWindowLocation, merged.fadeWindow);
   gl.uniform1f(u.easedNormalizedTimeLocation, easedNormalizedTime);

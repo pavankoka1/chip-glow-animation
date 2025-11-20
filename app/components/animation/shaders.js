@@ -130,7 +130,7 @@ vec3 ellipsePositionLocal(float thetaLocal) {
 // Returns (distancePx, thetaChosenLocal, along01)
 // Optimized: reduced samples from 64 to 32 for better performance
 vec3 findClosestOnSegment(vec2 pixelPos, float theta0, float theta1) {
-  const int SAMPLES_CLOSE = 32;
+  const int SAMPLES_CLOSE = 50;
   float minDist = 1e9;
   float bestT = 0.5;
   for (int i = 0; i < SAMPLES_CLOSE; i++) {

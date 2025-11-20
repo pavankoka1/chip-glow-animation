@@ -33,6 +33,9 @@ uniform mediump float u_rotAngle;          // base rotation of ellipse (radians)
 uniform mediump float u_circleRadius;      // circle radius (px)
 uniform mediump float u_startTheta;        // ellipse parameter theta for BR vertex
 uniform mediump float u_meetingTheta;      // ellipse parameter theta for meeting point
+uniform mediump float u_ellipsePortion;    // precomputed ellipse portion (0.0 to 1.0)
+uniform mediump float u_circlePortion;      // precomputed circle portion (0.0 to 1.0)
+uniform mediump float u_meetingCircleAngle; // precomputed meeting point angle on circle
 uniform mediump float u_overshoot;         // extra phase beyond 1.0 (phase units)
 uniform mediump float u_fadeWindow;        // fade window in phase after tail end
 uniform mediump float u_easedNormalizedTime; // eased normalized time (0.0 to 1.0) from JS
@@ -84,53 +87,29 @@ vec2 circlePosition(float angle) {
 // Get position along the combined path
 // t is normalized path parameter (0.0 to 1.0)
 // Returns 2D position in screen space
+// OPTIMIZED: Uses precomputed values from JavaScript instead of recalculating
 vec2 getPathPosition(float t) {
-  // Use the theta values passed from JavaScript (calculated using Newton's method)
-  float START_THETA = u_startTheta;
-  float MEETING_THETA = u_meetingTheta;
+  const float circleRotations = 2.0; // 2 full rotations
+  const float totalRotation = circleRotations * 2.0 * 3.141592653589793; // 4π
   
-  // Calculate ellipse path length (approximate) - optimized for performance
-  // Reduced samples for better performance while maintaining accuracy
-  float ellipseArcLength = 0.0;
-  const int ELLIPSE_SAMPLES = 16; // Reduced from 32 for better performance
-  vec2 prevPos = ellipsePosition(START_THETA);
-  for (int i = 1; i <= ELLIPSE_SAMPLES; i++) {
-    float thetaT = float(i) / float(ELLIPSE_SAMPLES);
-    float theta = mix(START_THETA, MEETING_THETA, thetaT);
-    vec2 pos = ellipsePosition(theta);
-    ellipseArcLength += distance(pos, prevPos);
-    prevPos = pos;
-  }
-  
-  // Circle path: 2 full rotations (4π) only - no spiral to center
-  const float circleRotations = 2.0;
-  float circlePathLength = circleRotations * 2.0 * 3.141592653589793 * u_circleRadius; // Rotation part only
-  
-  float totalPathLength = ellipseArcLength + circlePathLength;
-  float ellipsePortion = ellipseArcLength / totalPathLength;
-  float circlePortion = circlePathLength / totalPathLength;
+  // Use precomputed portions from JavaScript (much faster!)
+  float ellipsePortion = u_ellipsePortion;
+  float circlePortion = u_circlePortion;
   
   if (t <= ellipsePortion) {
-    // Ellipse portion: from BR to meeting point
+    // Ellipse portion: from start vertex to meeting point
     float ellipseT = t / ellipsePortion;
-    float theta = mix(START_THETA, MEETING_THETA, ellipseT);
+    float theta = mix(u_startTheta, u_meetingTheta, ellipseT);
     return ellipsePosition(theta);
   } else {
-    // Circle portion: from meeting point, rotate 2 times clockwise, then disappear
+    // Circle portion: from meeting point, rotate 2 times clockwise
     float circleT = (t - ellipsePortion) / circlePortion;
     
-    // Calculate meeting point on circle
-    // Get meeting point in screen coords, then convert to math coords for angle calculation
-    vec2 ellipseMeetingPoint = ellipsePosition(MEETING_THETA);
-    vec2 relativePosScreen = ellipseMeetingPoint - u_center;
-    // Convert screen coords to math coords: math Y = -screen Y
-    vec2 relativePosMath = vec2(relativePosScreen.x, -relativePosScreen.y);
-    // Calculate angle in math coordinates
-    float meetingCircleAngle = atan(relativePosMath.y, relativePosMath.x);
+    // Use precomputed meeting circle angle (much faster!)
+    float meetingCircleAngle = u_meetingCircleAngle;
     
     // Rotate 2 full times clockwise
     // In math coords (Y+ up), clockwise = decreasing angle (negative direction)
-    float totalRotation = circleRotations * 2.0 * 3.141592653589793; // 2 full rotations = 4π
     float angle = meetingCircleAngle - totalRotation * circleT; // Negative for clockwise
     return circlePosition(angle);
   }

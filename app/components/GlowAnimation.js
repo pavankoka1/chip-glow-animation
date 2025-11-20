@@ -52,7 +52,7 @@ export default function GlowAnimation({
   // Easing for Spark animation: ease-out quad (gentle deceleration)
   const applyEasingSpark = (t) => {
     const t1 = 1 - t;
-    return 1 - t1 * t1;
+    return 1 - Math.pow(t1, 1.5);
   };
 
   // Easing for Circle animation: ease-in cubic (slow start, very fast at end)
@@ -60,7 +60,7 @@ export default function GlowAnimation({
     // const t1 = 1 - t;
     // return 1 - t1 * t1;
     // Ease-in cubic: smooth acceleration, very fast at the end
-    return t;
+    return t * t;
 
     // Alternative: Ease-in expo (extremely fast at end)
     // return t <= 0 ? 0 : Math.pow(2, 10 * (t - 1));
@@ -732,6 +732,9 @@ export default function GlowAnimation({
               startTheta: pathResult.startTheta,
               meetingTheta: pathResult.meetingTheta,
               rotAngle: dynamicRotAngle, // Use the dynamic rotation angle based on start vertex
+              ellipsePortion: pathResult.ellipsePortion, // Precomputed for shader optimization
+              circlePortion: pathResult.circlePortion, // Precomputed for shader optimization
+              meetingCircleAngle: pathResult.meetingCircleAngle, // Precomputed for shader optimization
               centerX,
               centerY,
               a: autoA,
@@ -987,6 +990,9 @@ export default function GlowAnimation({
             startTheta: metrics?.startTheta ?? 0,
             meetingTheta: metrics?.meetingTheta ?? 0,
             rotAngle: metrics?.rotAngle, // Pass the dynamic rotation angle from metrics
+            ellipsePortion: metrics?.ellipsePortion, // Precomputed for shader optimization
+            circlePortion: metrics?.circlePortion, // Precomputed for shader optimization
+            meetingCircleAngle: metrics?.meetingCircleAngle, // Precomputed for shader optimization
           });
         } else {
           // Draw regular ellipse path
