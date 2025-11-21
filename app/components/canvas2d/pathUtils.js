@@ -60,21 +60,43 @@ function getEllipsePosition2D(
   const x_rot = c * x_local - s * y_local;
   const y_rot = s * x_local + c * y_local;
 
-  // Apply ellipse tilt as a 2D rotation around the major axis
+  // Apply ellipse tilt - 2D version of 3D rotation around major axis
   let x = x_rot;
   let y = y_rot;
 
   if (Math.abs(ellipseTiltDeg) > 0.001) {
-    const tiltOffsetAmount = (ellipseTiltDeg / 90.0) * b * 0.3;
+    // Calculate ellipse tilt angle (same as WebGL: (90 - ellipseTiltDeg) * PI / 180)
+    const ellipseTiltRad = ((90 - ellipseTiltDeg) * Math.PI) / 180;
+    const ct = Math.cos(ellipseTiltRad);
+    const st = Math.sin(ellipseTiltRad);
+    const oneMinusCt = 1 - ct;
 
-    // Major axis direction
+    // Major axis direction (normalized)
     const majorAxis = [c, s];
     const axisLen = Math.hypot(majorAxis[0], majorAxis[1]);
+    
     if (axisLen > 0.0001) {
       const normalizedAxis = [majorAxis[0] / axisLen, majorAxis[1] / axisLen];
-      const perpendicularDir = [-normalizedAxis[1], normalizedAxis[0]];
+      
+      // 2D rotation matrix around major axis
+      // In 2D, we rotate in the plane perpendicular to the major axis
+      // This is equivalent to rotating around the z-axis by the tilt angle
+      // and then projecting back to 2D
+      const m00 = ct + normalizedAxis[0] * normalizedAxis[0] * oneMinusCt;
+      const m01 = normalizedAxis[0] * normalizedAxis[1] * oneMinusCt;
+      const m10 = normalizedAxis[1] * normalizedAxis[0] * oneMinusCt;
+      const m11 = ct + normalizedAxis[1] * normalizedAxis[1] * oneMinusCt;
 
-      // Apply tilt offset
+      // Apply rotation matrix
+      const x_tilt = m00 * x_rot + m01 * y_rot;
+      const y_tilt = m10 * x_rot + m11 * y_rot;
+      
+      x = x_tilt;
+      y = y_tilt;
+
+      // Apply tilt offset (same as WebGL)
+      const tiltOffsetAmount = (ellipseTiltDeg / 90.0) * b * 0.3;
+      const perpendicularDir = [-normalizedAxis[1], normalizedAxis[0]];
       x += perpendicularDir[0] * tiltOffsetAmount;
       y += perpendicularDir[1] * tiltOffsetAmount;
     }
@@ -84,7 +106,113 @@ function getEllipsePosition2D(
   return [x + centerX, y + centerY];
 }
 
+// Check if a point is inside the BetSpot rectangle
+function isPointInsideBetSpot(x, y, centerX, centerY, rect) {
+  if (!rect) {
+    // Fallback: assume 100x100 betspot
+    const halfWidth = 50;
+    const halfHeight = 50;
+    return (
+      x >= centerX - halfWidth &&
+      x <= centerX + halfWidth &&
+      y >= centerY - halfHeight &&
+      y <= centerY + halfHeight
+    );
+  }
+  
+  const halfWidth = rect.width / 2;
+  const halfHeight = rect.height / 2;
+  
+  return (
+    x >= centerX - halfWidth &&
+    x <= centerX + halfWidth &&
+    y >= centerY - halfHeight &&
+    y <= centerY + halfHeight
+  );
+}
+
+// Find where the ellipse intersects with BetSpot on the return journey
+// Returns the theta value where the ellipse enters the BetSpot rectangle
+function findEllipseBetSpotIntersection(
+  a,
+  b,
+  rotAngle,
+  centerX,
+  centerY,
+  ellipseTiltDeg,
+  thetaStart,
+  thetaEnd,
+  rect,
+  startVertex
+) {
+  if (!rect) {
+    // Fallback: go one full rotation if no rect
+    return thetaEnd + 2 * Math.PI;
+  }
+  
+  const halfWidth = rect.width / 2;
+  const halfHeight = rect.height / 2;
+  
+  // Sample points along the ellipse starting from thetaEnd, going around
+  // We need to find when the ellipse re-enters the BetSpot rectangle
+  const MAX_THETA = thetaEnd + 2 * Math.PI;
+  const SAMPLE_STEP = 0.005; // Fine sampling for accurate intersection
+  const SAMPLES = Math.ceil((MAX_THETA - thetaEnd) / SAMPLE_STEP);
+  
+  // Sample points along the ellipse starting from thetaEnd
+  // We need to: 1) confirm we go outside, 2) find when we re-enter
+  
+  let consecutiveOutside = 0;
+  const OUTSIDE_THRESHOLD = 10; // Need 10 consecutive outside points to confirm we're outside
+  let confirmedOutside = false;
+  let lastWasInside = true; // Start assuming we're inside (at the end vertex)
+  let intersectionTheta = null;
+  
+  for (let i = 1; i <= SAMPLES; i++) {
+    const theta = thetaEnd + i * SAMPLE_STEP;
+    const [px, py] = getEllipsePosition2D(
+      theta,
+      a,
+      b,
+      rotAngle,
+      centerX,
+      centerY,
+      ellipseTiltDeg
+    );
+    
+    const isInside = isPointInsideBetSpot(px, py, centerX, centerY, rect);
+    
+    // Track consecutive outside points to confirm we've left the BetSpot
+    if (!isInside) {
+      consecutiveOutside++;
+      if (consecutiveOutside >= OUTSIDE_THRESHOLD && !confirmedOutside) {
+        confirmedOutside = true;
+        lastWasInside = false; // We're now confirmed to be outside
+        continue;
+      }
+    } else {
+      consecutiveOutside = 0;
+    }
+    
+    // Once we've confirmed we're outside, look for re-entry
+    if (confirmedOutside) {
+      // If we transition from outside to inside, that's our intersection point
+      // (the spark is returning and hitting the BetSpot)
+      if (!lastWasInside && isInside) {
+        intersectionTheta = theta;
+        break;
+      }
+    }
+    
+    lastWasInside = isInside;
+  }
+  
+  // If we didn't find an intersection, default to going one full rotation
+  return intersectionTheta !== null ? intersectionTheta : thetaEnd + 2 * Math.PI;
+}
+
 // Compute path length for spark (elliptical arc)
+// Now includes the return journey until it hits the BetSpot
 export function computeSparkPathLength2D(
   a,
   b,
@@ -93,9 +221,25 @@ export function computeSparkPathLength2D(
   thetaEnd,
   centerX,
   centerY,
-  ellipseTiltDeg = 0
+  ellipseTiltDeg = 0,
+  rect = null,
+  startVertex = null
 ) {
-  const SAMPLES = 128;
+  // Find where the ellipse intersects with BetSpot on return
+  const actualThetaEnd = findEllipseBetSpotIntersection(
+    a,
+    b,
+    rotAngle,
+    centerX,
+    centerY,
+    ellipseTiltDeg,
+    thetaStart,
+    thetaEnd,
+    rect,
+    startVertex
+  );
+  
+  const SAMPLES = 256; // Increased samples for longer path
   let [px0, py0] = getEllipsePosition2D(
     thetaStart,
     a,
@@ -107,9 +251,12 @@ export function computeSparkPathLength2D(
   );
   let total = 0;
 
+  // Interpolate from thetaStart to actualThetaEnd
+  // Don't normalize theta - let the ellipse function handle periodicity naturally
   for (let i = 1; i <= SAMPLES; i++) {
     const t = i / SAMPLES;
-    const th = thetaStart + (thetaEnd - thetaStart) * t;
+    const th = thetaStart + (actualThetaEnd - thetaStart) * t;
+    
     const [px, py] = getEllipsePosition2D(
       th,
       a,
@@ -124,7 +271,7 @@ export function computeSparkPathLength2D(
     py0 = py;
   }
 
-  return total;
+  return { pathLength: total, actualThetaEnd };
 }
 
 // Compute path length for circle path (ellipse to circle transition)
@@ -319,7 +466,10 @@ function getSparkPathPosition(
   centerY,
   ellipseTiltDeg = 0
 ) {
+  // Interpolate from thetaStart to thetaEnd
+  // Don't normalize - let the ellipse function handle periodicity through cos/sin
   const theta = thetaStart + (thetaEnd - thetaStart) * t;
+  
   return getEllipsePosition2D(theta, a, b, rotAngle, centerX, centerY, ellipseTiltDeg);
 }
 
@@ -399,6 +549,7 @@ export function drawPath2D({
   totalArcPx,
   metrics,
   isCirclePath,
+  anchorEl,
 }) {
   const merged = {
     animationTimeMs: resolveNumber(
@@ -518,6 +669,17 @@ export function drawPath2D({
 
     const a = merged.ellipse.a;
     const b = merged.ellipse.b;
+    
+    // Use actualThetaEnd if available (from intersection calculation), otherwise use thetaEndLocal
+    const actualThetaEnd = metrics?.actualThetaEnd ?? thetaEndLocal;
+    
+    // Get BetSpot rect for intersection checking
+    const rect = anchorEl?.getBoundingClientRect ? anchorEl.getBoundingClientRect() : null;
+    const halfWidth = rect ? rect.width / 2 : 50;
+    const halfHeight = rect ? rect.height / 2 : 50;
+    
+    // Use thetaEndLocal from metrics if available, otherwise calculate it
+    const initialPathEndTheta = metrics?.thetaEndLocal ?? thetaEndLocal;
 
     for (let i = 0; i <= SAMPLE_COUNT; i++) {
       const t = segTail + (segHead - segTail) * (i / SAMPLE_COUNT);
@@ -529,11 +691,34 @@ export function drawPath2D({
         b,
         rotAngle,
         thetaStartLocal,
-        thetaEndLocal,
+        actualThetaEnd,
         centerX,
         centerY,
         merged.ellipseTiltDeg
       );
+      
+      // Calculate if we're past the initial path (from startVertex to endVertex)
+      // Use the ratio of path lengths to determine this
+      const totalPathRange = actualThetaEnd - thetaStartLocal;
+      const initialPathRange = initialPathEndTheta - thetaStartLocal;
+      const initialPathRatio = initialPathRange / Math.max(totalPathRange, 0.0001);
+      const isPastInitialPath = tClamped > initialPathRatio;
+      
+      // If we're past the initial path (return journey) and inside BetSpot, skip this point
+      // This prevents the "dot" from appearing at the intersection point
+      if (isPastInitialPath) {
+        const isInside = (
+          x >= centerX - halfWidth &&
+          x <= centerX + halfWidth &&
+          y >= centerY - halfHeight &&
+          y <= centerY + halfHeight
+        );
+        if (isInside) {
+          // Stop drawing once we hit the BetSpot on return
+          // Don't add this point or any subsequent points
+          break;
+        }
+      }
 
       const along01 = (i / SAMPLE_COUNT);
       const radius = merged.tailRadius + (merged.headRadius - merged.tailRadius) * along01;

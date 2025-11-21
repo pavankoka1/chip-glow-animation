@@ -180,9 +180,11 @@ export default function GlowAnimation2D({
             prev.rotAngle !== rotAngle ||
             prev.dir !== dir ||
             prev.ellipseTiltDeg !== ellipseTiltDeg ||
-            prev.isCircle === true
+            prev.isCircle === true ||
+            prev.rectWidth !== rect?.width ||
+            prev.rectHeight !== rect?.height
           ) {
-            const pathLength = computeSparkPathLength2D(
+            const pathResult = computeSparkPathLength2D(
               autoA,
               bVal,
               rotAngle,
@@ -190,11 +192,14 @@ export default function GlowAnimation2D({
               thetaEndLocal,
               centerX,
               centerY,
-              ellipseTiltDeg
+              ellipseTiltDeg,
+              rect,
+              p.startVertex
             );
             pathMetricsRef.current.set(p.id, {
-              pathLength,
+              pathLength: pathResult.pathLength,
               thetaEndLocal,
+              actualThetaEnd: pathResult.actualThetaEnd,
               rotAngle,
               dir,
               centerX,
@@ -203,6 +208,8 @@ export default function GlowAnimation2D({
               b: bVal,
               ellipseTiltDeg,
               isCircle: false,
+              rectWidth: rect?.width,
+              rectHeight: rect?.height,
             });
           }
         }
@@ -333,6 +340,7 @@ export default function GlowAnimation2D({
           totalArcPx: pathLength,
           metrics,
           isCirclePath,
+          anchorEl,
         });
       }
 
