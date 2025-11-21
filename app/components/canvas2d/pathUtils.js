@@ -1421,13 +1421,20 @@ export function drawPath2D({
     const b = merged.ellipse.b;
     const rotAngle = metrics?.rotAngle ?? (135 * Math.PI) / 180;
 
-    // Fade out the last 40% of points to make the end subtle and eliminate the dot
-    const FADE_OUT_RATIO = 0.4; // Last 40% of the path
-    const fadeStartIndex = Math.floor(SAMPLE_COUNT * (1 - FADE_OUT_RATIO));
-    // Skip the last several points entirely to ensure no visible dot
-    const SKIP_LAST_POINTS = 12;
+    // Eliminate the dot by fading out the last portion and skipping the very last points
+    // Draw most of the path (95%) but skip the last few points to prevent dot
+    const STOP_RATIO = 0.95; // Draw 95% of the path
+    const HARD_SKIP_LAST = 8; // Hard-skip the last N points regardless of fade
+    const maxDrawIndex = Math.max(
+      0,
+      Math.floor(SAMPLE_COUNT * STOP_RATIO) - HARD_SKIP_LAST
+    );
 
-    for (let i = 0; i <= SAMPLE_COUNT - SKIP_LAST_POINTS; i++) {
+    // Fade out only the last 25% of drawn points to make the end subtle
+    const FADE_OUT_RATIO = 0.25; // Last 25% of drawn points
+    const fadeStartIndex = Math.floor(maxDrawIndex * (1 - FADE_OUT_RATIO));
+
+    for (let i = 0; i <= maxDrawIndex; i++) {
       const t = segTail + (segHead - segTail) * (i / SAMPLE_COUNT);
       const tClamped = Math.max(0, Math.min(1, t));
 
@@ -1451,30 +1458,47 @@ export function drawPath2D({
       let radius =
         merged.tailRadius + (merged.headRadius - merged.tailRadius) * along01;
 
-      // Apply aggressive fade-out to the last portion to eliminate the dot
+      // Apply extremely aggressive fade-out to the last portion to eliminate the dot
       let pointAlpha = alpha;
       let shouldAdd = true;
+      let fadeAlpha = 1; // Default to full visibility
 
       if (i >= fadeStartIndex) {
         const fadeProgress =
-          (i - fadeStartIndex) /
-          (SAMPLE_COUNT - SKIP_LAST_POINTS - fadeStartIndex);
-        // Extremely aggressive fade using very steep ease-out curve (power of 5 for extremely fast fade)
-        const fadeAlpha = Math.max(0, 1 - Math.pow(fadeProgress, 5));
+          (i - fadeStartIndex) / (maxDrawIndex - fadeStartIndex);
+        // Aggressive fade using steep ease-out curve (power of 5 for fast fade)
+        fadeAlpha = Math.max(0, 1 - Math.pow(fadeProgress, 5));
         pointAlpha = alpha * fadeAlpha;
-        // Aggressively reduce radius to near zero for the last points
-        // Reduce radius more aggressively to eliminate any visible dot
-        radius = radius * Math.max(0, 0.02 + 0.98 * fadeAlpha);
 
-        // Only add point in fade region if it has meaningful visibility
-        // Use very strict threshold to ensure no visible dot remains
-        // Require both high alpha and reasonable radius to prevent any dot from showing
-        shouldAdd = pointAlpha > 0.1 && radius > 0.5;
+        // For the fade region, make radius go back towards tailRadius instead of headRadius
+        // This ensures the end is thin, not a large dot
+        const fadeAlong01 =
+          (i - fadeStartIndex) / (maxDrawIndex - fadeStartIndex);
+        const targetRadius =
+          merged.tailRadius +
+          (merged.headRadius - merged.tailRadius) * (1 - fadeAlong01);
+        radius = targetRadius * Math.max(0, fadeAlpha);
+
+        // Only add point in fade region if it has reasonable visibility
+        // Use moderate threshold to ensure no visible dot while keeping circle visible
+        const radiusRatio = radius / Math.max(merged.headRadius, 0.001);
+        // Require alpha > 0.4 and radius > 0.2 to ensure some visibility but prevent visible dot
+        // Skip points that are too small or too faint to prevent visible dot at the end
+        shouldAdd = pointAlpha > 0.4 && radius > 0.2;
       }
 
       // Add point if it should be visible
+      // Also reduce glow radius for fade region to prevent glow from making dot visible
       if (shouldAdd) {
-        points.push({ x, y, radius, along01, alpha: pointAlpha });
+        const glowRadiusMultiplier = i >= fadeStartIndex ? fadeAlpha : 1;
+        points.push({
+          x,
+          y,
+          radius,
+          along01,
+          alpha: pointAlpha,
+          glowRadiusMultiplier,
+        });
       }
     }
   } else {
@@ -1560,12 +1584,17 @@ export function drawPath2D({
   for (const point of points) {
     // Use point-specific alpha if available (for circle fade-out), otherwise use global alpha
     const pointAlpha = point.alpha !== undefined ? point.alpha : alpha;
+    // Reduce glow radius for fade region to prevent glow from making dot visible
+    const glowRadius =
+      point.glowRadiusMultiplier !== undefined
+        ? merged.glowRadius * point.glowRadiusMultiplier
+        : merged.glowRadius;
     drawGlowPoint(
       ctx,
       point.x,
       point.y,
       point.radius,
-      merged.glowRadius,
+      glowRadius,
       merged.sparkColor,
       merged.glowColor,
       pointAlpha
