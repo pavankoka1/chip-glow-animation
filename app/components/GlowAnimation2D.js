@@ -3,12 +3,12 @@
 import { useEffect, useRef } from "react";
 import useFps from "../hooks/useFps";
 import { DEFAULT_CONFIG } from "./animation/constants";
-import { getAngleForVertex } from "./canvas2d/utils";
 import {
   computeCirclePathLength2D,
   computeSparkPathLength2D,
   drawPath2D,
 } from "./canvas2d/pathUtils";
+import { getAngleForVertex } from "./canvas2d/utils";
 
 export default function GlowAnimation2D({
   anchorEl,
@@ -97,6 +97,7 @@ export default function GlowAnimation2D({
 
           const bVal = circleRadius;
           const startVertex = p.startVertex || "BR";
+          const direction = p.direction ?? cfg.direction ?? "clockwise"; // Get direction from config
 
           const dynamicRotAngle =
             startVertex === "BR" || startVertex === "TL"
@@ -113,6 +114,7 @@ export default function GlowAnimation2D({
             prev.rotAngle !== dynamicRotAngle ||
             prev.circleRadius !== circleRadius ||
             prev.startVertex !== startVertex ||
+            prev.direction !== direction ||
             prev.isCircle !== true
           ) {
             const pathResult = computeCirclePathLength2D(
@@ -123,7 +125,8 @@ export default function GlowAnimation2D({
               centerY,
               circleRadius,
               rect,
-              startVertex
+              startVertex,
+              direction
             );
             pathMetricsRef.current.set(p.id, {
               pathLength: pathResult.pathLength,
@@ -133,6 +136,7 @@ export default function GlowAnimation2D({
               ellipsePortion: pathResult.ellipsePortion,
               circlePortion: pathResult.circlePortion,
               meetingCircleAngle: pathResult.meetingCircleAngle,
+              direction: pathResult.direction,
               centerX,
               centerY,
               a: autoA,
@@ -153,8 +157,21 @@ export default function GlowAnimation2D({
               (2 * Math.PI)) -
             Math.PI;
           let dir = Math.sign(delta) || 1;
+
+          const direction = p.direction ?? cfg.direction ?? "auto"; // Get direction from config
+
+          // If direction is explicitly set, override dir
+          let finalDir = dir;
+          if (direction === "anticlockwise") {
+            finalDir = -1;
+          } else if (direction === "clockwise") {
+            finalDir = 1;
+          }
+          // If direction is "auto", use the calculated dir
+
           const thetaStartLocal = 0.0;
-          const thetaEndLocal = Math.abs(delta || Math.PI);
+          // Make thetaEndLocal signed based on direction
+          const thetaEndLocal = finalDir * Math.abs(delta || Math.PI);
           const rotAngle = startDir;
 
           const ellipseCfg = p.ellipse || cfg.ellipse;
@@ -168,6 +185,8 @@ export default function GlowAnimation2D({
           }
 
           const ellipseTiltDeg = p.ellipseTiltDeg ?? cfg.ellipseTiltDeg ?? 0;
+          const ellipseRotationDeg =
+            p.ellipseRotationDeg ?? cfg.ellipseRotationDeg ?? 0;
 
           const prev = pathMetricsRef.current.get(p.id);
           if (
@@ -178,8 +197,10 @@ export default function GlowAnimation2D({
             prev.b !== bVal ||
             prev.thetaEndLocal !== thetaEndLocal ||
             prev.rotAngle !== rotAngle ||
-            prev.dir !== dir ||
+            prev.dir !== finalDir ||
             prev.ellipseTiltDeg !== ellipseTiltDeg ||
+            prev.ellipseRotationDeg !== ellipseRotationDeg ||
+            prev.direction !== direction ||
             prev.isCircle === true ||
             prev.rectWidth !== rect?.width ||
             prev.rectHeight !== rect?.height
@@ -194,19 +215,22 @@ export default function GlowAnimation2D({
               centerY,
               ellipseTiltDeg,
               rect,
-              p.startVertex
+              p.startVertex,
+              ellipseRotationDeg
             );
             pathMetricsRef.current.set(p.id, {
               pathLength: pathResult.pathLength,
               thetaEndLocal,
               actualThetaEnd: pathResult.actualThetaEnd,
               rotAngle,
-              dir,
+              dir: finalDir,
+              direction,
               centerX,
               centerY,
               a: autoA,
               b: bVal,
               ellipseTiltDeg,
+              ellipseRotationDeg,
               isCircle: false,
               rectWidth: rect?.width,
               rectHeight: rect?.height,
@@ -223,7 +247,7 @@ export default function GlowAnimation2D({
       for (const p of activePaths) {
         const isCirclePathP =
           p.type === "circle" || p.circleRadius !== undefined;
-        
+
         const delayRaw = p.delay || 0;
         const delaySec = delayToSeconds(delayRaw);
         const durationSec =
@@ -243,9 +267,10 @@ export default function GlowAnimation2D({
           Math.max(0.0, elapsed / Math.max(durationSec, 0.0001))
         );
 
-        const scaledPhase = (isCirclePathP
-          ? applyEasingCircle(normalizedTime)
-          : applyEasingSpark(normalizedTime)) * totalSpan;
+        const scaledPhase =
+          (isCirclePathP
+            ? applyEasingCircle(normalizedTime)
+            : applyEasingSpark(normalizedTime)) * totalSpan;
         const completeThreshold = totalSpan + fadeWindow;
 
         const fadeWindowDuration = (fadeWindow / totalSpan) * durationSec;

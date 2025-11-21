@@ -14,13 +14,13 @@ export default function Canvas2DPage() {
   const [configOpen, setConfigOpen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   const [config, setConfig] = useState({
-    animationTimeMs: 1000,
+    animationTimeMs: 1200,
     // animationTimeMs: 10000,
-    glowRadius: 2,
-    ellipse: { b: 20 },
-    headRadius: 2,
+    glowRadius: 4,
+    ellipse: { b: 20, a: 76 },
+    headRadius: 3,
     tailRadius: 0.2,
-    length: 80,
+    length: 100,
     sparkColor: "#ffff00",
     glowColor: "#fff391",
     paths: [
@@ -30,7 +30,8 @@ export default function Canvas2DPage() {
         startVertex: "BR",
         endVertex: "TL",
         delay: 0,
-        ellipseTiltDeg: 0,
+        ellipseTiltDeg: -45,
+        ellipseRotationDeg: -2,
         enabled: true,
       },
       {
@@ -40,11 +41,13 @@ export default function Canvas2DPage() {
         endVertex: "TR",
         delay: 400,
         ellipseTiltDeg: 45,
+        ellipseRotationDeg: 2,
         enabled: true,
       },
       {
         id: 3,
         type: "circle",
+        animationTimeMs: 800,
         startVertex: "BR",
         circleRadius: 25,
         delay: 1150,
@@ -53,9 +56,11 @@ export default function Canvas2DPage() {
       {
         id: 4,
         type: "circle",
+        animationTimeMs: 800,
         startVertex: "BL",
         circleRadius: 25,
-        delay: 1350,
+        delay: 1250,
+        direction: "anticlockwise", // Go anticlockwise
         enabled: true,
       },
     ],

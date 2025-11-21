@@ -1,5 +1,4 @@
 import {
-  degToRad,
   delayToSeconds,
   getAngleForVertex,
   hexToRgb,
@@ -48,15 +47,18 @@ function getEllipsePosition2D(
   rotAngle,
   centerX,
   centerY,
-  ellipseTiltDeg = 0
+  ellipseTiltDeg = 0,
+  ellipseRotationDeg = 0
 ) {
   // Local ellipse coordinates
   const x_local = a * Math.cos(theta);
   const y_local = b * Math.sin(theta);
 
-  // Apply rotation
-  const c = Math.cos(rotAngle);
-  const s = Math.sin(rotAngle);
+  // Apply rotation (same as WebGL: baseRot = rotAngle + rotExtra)
+  const rotExtra = (ellipseRotationDeg * Math.PI) / 180;
+  const baseRot = rotAngle + rotExtra;
+  const c = Math.cos(baseRot);
+  const s = Math.sin(baseRot);
   const x_rot = c * x_local - s * y_local;
   const y_rot = s * x_local + c * y_local;
 
@@ -74,10 +76,10 @@ function getEllipsePosition2D(
     // Major axis direction (normalized)
     const majorAxis = [c, s];
     const axisLen = Math.hypot(majorAxis[0], majorAxis[1]);
-    
+
     if (axisLen > 0.0001) {
       const normalizedAxis = [majorAxis[0] / axisLen, majorAxis[1] / axisLen];
-      
+
       // 2D rotation matrix around major axis
       // In 2D, we rotate in the plane perpendicular to the major axis
       // This is equivalent to rotating around the z-axis by the tilt angle
@@ -90,7 +92,7 @@ function getEllipsePosition2D(
       // Apply rotation matrix
       const x_tilt = m00 * x_rot + m01 * y_rot;
       const y_tilt = m10 * x_rot + m11 * y_rot;
-      
+
       x = x_tilt;
       y = y_tilt;
 
@@ -119,10 +121,10 @@ function isPointInsideBetSpot(x, y, centerX, centerY, rect) {
       y <= centerY + halfHeight
     );
   }
-  
+
   const halfWidth = rect.width / 2;
   const halfHeight = rect.height / 2;
-  
+
   return (
     x >= centerX - halfWidth &&
     x <= centerX + halfWidth &&
@@ -143,33 +145,36 @@ function findEllipseBetSpotIntersection(
   thetaStart,
   thetaEnd,
   rect,
-  startVertex
+  startVertex,
+  ellipseRotationDeg = 0
 ) {
   if (!rect) {
     // Fallback: go one full rotation if no rect
     return thetaEnd + 2 * Math.PI;
   }
-  
+
   const halfWidth = rect.width / 2;
   const halfHeight = rect.height / 2;
-  
+
   // Sample points along the ellipse starting from thetaEnd, going around
   // We need to find when the ellipse re-enters the BetSpot rectangle
-  const MAX_THETA = thetaEnd + 2 * Math.PI;
-  const SAMPLE_STEP = 0.005; // Fine sampling for accurate intersection
-  const SAMPLES = Math.ceil((MAX_THETA - thetaEnd) / SAMPLE_STEP);
-  
+  // Handle both positive and negative thetaEnd (clockwise vs anticlockwise)
+  const directionSign = Math.sign(thetaEnd) || 1; // Use sign of thetaEnd to determine direction
+  const SAMPLE_STEP = 0.005 * directionSign; // Fine sampling for accurate intersection, respect direction
+  const MAX_THETA = thetaEnd + directionSign * 2 * Math.PI;
+  const SAMPLES = Math.ceil(Math.abs((MAX_THETA - thetaEnd) / SAMPLE_STEP));
+
   // Sample points along the ellipse starting from thetaEnd
   // We need to: 1) confirm we go outside, 2) find when we re-enter
-  
+
   let consecutiveOutside = 0;
   const OUTSIDE_THRESHOLD = 10; // Need 10 consecutive outside points to confirm we're outside
   let confirmedOutside = false;
   let lastWasInside = true; // Start assuming we're inside (at the end vertex)
   let intersectionTheta = null;
-  
+
   for (let i = 1; i <= SAMPLES; i++) {
-    const theta = thetaEnd + i * SAMPLE_STEP;
+    const theta = thetaEnd + i * SAMPLE_STEP; // SAMPLE_STEP already has the correct sign
     const [px, py] = getEllipsePosition2D(
       theta,
       a,
@@ -177,11 +182,12 @@ function findEllipseBetSpotIntersection(
       rotAngle,
       centerX,
       centerY,
-      ellipseTiltDeg
+      ellipseTiltDeg,
+      ellipseRotationDeg
     );
-    
+
     const isInside = isPointInsideBetSpot(px, py, centerX, centerY, rect);
-    
+
     // Track consecutive outside points to confirm we've left the BetSpot
     if (!isInside) {
       consecutiveOutside++;
@@ -193,7 +199,7 @@ function findEllipseBetSpotIntersection(
     } else {
       consecutiveOutside = 0;
     }
-    
+
     // Once we've confirmed we're outside, look for re-entry
     if (confirmedOutside) {
       // If we transition from outside to inside, that's our intersection point
@@ -203,12 +209,15 @@ function findEllipseBetSpotIntersection(
         break;
       }
     }
-    
+
     lastWasInside = isInside;
   }
-  
-  // If we didn't find an intersection, default to going one full rotation
-  return intersectionTheta !== null ? intersectionTheta : thetaEnd + 2 * Math.PI;
+
+  // If we didn't find an intersection, default to going one full rotation in the same direction
+  // directionSign is already defined above
+  return intersectionTheta !== null
+    ? intersectionTheta
+    : thetaEnd + directionSign * 2 * Math.PI;
 }
 
 // Compute path length for spark (elliptical arc)
@@ -223,7 +232,8 @@ export function computeSparkPathLength2D(
   centerY,
   ellipseTiltDeg = 0,
   rect = null,
-  startVertex = null
+  startVertex = null,
+  ellipseRotationDeg = 0
 ) {
   // Find where the ellipse intersects with BetSpot on return
   const actualThetaEnd = findEllipseBetSpotIntersection(
@@ -236,9 +246,10 @@ export function computeSparkPathLength2D(
     thetaStart,
     thetaEnd,
     rect,
-    startVertex
+    startVertex,
+    ellipseRotationDeg
   );
-  
+
   const SAMPLES = 256; // Increased samples for longer path
   let [px0, py0] = getEllipsePosition2D(
     thetaStart,
@@ -247,7 +258,8 @@ export function computeSparkPathLength2D(
     rotAngle,
     centerX,
     centerY,
-    ellipseTiltDeg
+    ellipseTiltDeg,
+    ellipseRotationDeg
   );
   let total = 0;
 
@@ -256,7 +268,7 @@ export function computeSparkPathLength2D(
   for (let i = 1; i <= SAMPLES; i++) {
     const t = i / SAMPLES;
     const th = thetaStart + (actualThetaEnd - thetaStart) * t;
-    
+
     const [px, py] = getEllipsePosition2D(
       th,
       a,
@@ -264,7 +276,8 @@ export function computeSparkPathLength2D(
       rotAngle,
       centerX,
       centerY,
-      ellipseTiltDeg
+      ellipseTiltDeg,
+      ellipseRotationDeg
     );
     total += Math.hypot(px - px0, py - py0);
     px0 = px;
@@ -283,7 +296,8 @@ export function computeCirclePathLength2D(
   centerY,
   circleRadius,
   rect = null,
-  startVertex = "BR"
+  startVertex = "BR",
+  direction = "clockwise" // "clockwise", "anticlockwise", or "auto"
 ) {
   const SAMPLES = 128;
 
@@ -369,9 +383,12 @@ export function computeCirclePathLength2D(
     return bestTheta;
   };
 
-  // Calculate meeting point - 90° clockwise from start vertex
+  // Calculate meeting point based on direction
+  // For clockwise: 90° clockwise from start vertex (subtract PI/2)
+  // For anticlockwise: 90° anticlockwise from start vertex (add PI/2)
   const startAngle = Math.atan2(startVertexY, startVertexX);
-  const meetingAngle = startAngle - Math.PI / 2;
+  const directionSign = direction === "anticlockwise" ? 1 : -1;
+  const meetingAngle = startAngle + directionSign * Math.PI / 2;
   const meetingPointX = circleRadius * Math.cos(meetingAngle);
   const meetingPointY = circleRadius * Math.sin(meetingAngle);
 
@@ -433,6 +450,7 @@ export function computeCirclePathLength2D(
   }
 
   // Circle portion: 2 full rotations
+  // Direction affects the rotation direction: clockwise = negative, anticlockwise = positive
   const circleRotations = 2;
   const circlePathLength = circleRotations * 2 * Math.PI * circleRadius;
 
@@ -451,6 +469,7 @@ export function computeCirclePathLength2D(
     ellipsePortion,
     circlePortion,
     meetingCircleAngle,
+    direction, // Include direction in return value
   };
 }
 
@@ -464,13 +483,23 @@ function getSparkPathPosition(
   thetaEnd,
   centerX,
   centerY,
-  ellipseTiltDeg = 0
+  ellipseTiltDeg = 0,
+  ellipseRotationDeg = 0
 ) {
   // Interpolate from thetaStart to thetaEnd
   // Don't normalize - let the ellipse function handle periodicity through cos/sin
   const theta = thetaStart + (thetaEnd - thetaStart) * t;
-  
-  return getEllipsePosition2D(theta, a, b, rotAngle, centerX, centerY, ellipseTiltDeg);
+
+  return getEllipsePosition2D(
+    theta,
+    a,
+    b,
+    rotAngle,
+    centerX,
+    centerY,
+    ellipseTiltDeg,
+    ellipseRotationDeg
+  );
 }
 
 // Get position along circle path
@@ -486,7 +515,8 @@ function getCirclePathPosition(
   meetingTheta,
   ellipsePortion,
   circlePortion,
-  meetingCircleAngle
+  meetingCircleAngle,
+  direction = "clockwise"
 ) {
   if (t <= ellipsePortion) {
     const ellipseT = t / ellipsePortion;
@@ -507,7 +537,9 @@ function getCirclePathPosition(
     const circleT = (t - ellipsePortion) / circlePortion;
     const circleRotations = 2;
     const totalRotation = circleRotations * 2 * Math.PI;
-    const angle = meetingCircleAngle - totalRotation * circleT;
+    // Direction affects rotation: clockwise = negative (decreasing angle), anticlockwise = positive (increasing angle)
+    const directionSign = direction === "anticlockwise" ? 1 : -1;
+    const angle = meetingCircleAngle + directionSign * totalRotation * circleT;
     const x_math = circleRadius * Math.cos(angle);
     const y_math = circleRadius * Math.sin(angle);
     const x = x_math + centerX;
@@ -517,24 +549,72 @@ function getCirclePathPosition(
 }
 
 // Draw a single point with glow effect
-function drawGlowPoint(ctx, x, y, radius, glowRadius, sparkColor, glowColor, alpha = 1) {
-  // Create radial gradient for glow
-  const gradient = ctx.createRadialGradient(x, y, radius, x, y, radius + glowRadius);
-  
+function drawGlowPoint(
+  ctx,
+  x,
+  y,
+  radius,
+  glowRadius,
+  sparkColor,
+  glowColor,
+  alpha = 1
+) {
   const [r, g, b] = hexToRgb(sparkColor);
   const [gr, gg, gb] = hexToRgb(glowColor);
-  
-  // Core (spark color)
-  gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${alpha})`);
-  gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${alpha * 0.8})`);
-  // Glow (glow color)
-  gradient.addColorStop(0.7, `rgba(${gr}, ${gg}, ${gb}, ${alpha * 0.6})`);
-  gradient.addColorStop(1, `rgba(${gr}, ${gg}, ${gb}, 0)`);
 
-  ctx.fillStyle = gradient;
+  // Always draw the core object (spark) with sparkColor
+  // This is the actual spark, defined by headRadius and tailRadius
+  // The core should always be visible regardless of glowRadius
+  ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
   ctx.beginPath();
-  ctx.arc(x, y, radius + glowRadius, 0, 2 * Math.PI);
+  ctx.arc(x, y, radius, 0, 2 * Math.PI);
   ctx.fill();
+
+  // If glowRadius > 0, draw the aura/glow effect around the object
+  // Create a beautiful, ethereal aura that emanates from the spark like natural light
+  // The aura should feel special - smooth, radiant, with natural light falloff
+  if (glowRadius > 0) {
+    const totalRadius = radius + glowRadius;
+    const coreRatio = radius / totalRadius;
+    
+    // Create radial gradient starting from center for true aura effect
+    // This makes the glow feel like light radiating from the spark itself
+    const gradient = ctx.createRadialGradient(
+      x,
+      y,
+      0, // Start from absolute center for natural light emanation
+      x,
+      y,
+      totalRadius // End at the aura edge
+    );
+
+    // Create a special, ethereal aura with natural light falloff
+    // Use exponential decay for realistic light behavior - feels like real light emanating
+    const maxAuraAlpha = 0.95 * alpha; // Strong, vibrant aura
+    
+    // Generate many color stops for ultra-smooth, ethereal gradient
+    // More stops = smoother transition = more special, professional look
+    const numStops = 16; // Even more stops for silky smooth aura
+    
+    for (let i = 0; i <= numStops; i++) {
+      const t = i / numStops; // 0 to 1
+      
+      // Exponential falloff with power 2.8 for natural light decay
+      // This creates a smooth, ethereal fade that feels like real light radiating
+      // Power 2.8 gives a nice balance - not too sharp, not too gradual
+      const falloff = Math.pow(1 - t, 2.8);
+      let auraAlpha = maxAuraAlpha * falloff;
+      
+      // Ensure smooth, continuous fade without harsh transitions
+      // Maintain high intensity near center for that special "glowing" feel
+      gradient.addColorStop(t, `rgba(${gr}, ${gg}, ${gb}, ${auraAlpha})`);
+    }
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(x, y, totalRadius, 0, 2 * Math.PI);
+    ctx.fill();
+  }
 }
 
 // Main drawing function
@@ -582,6 +662,11 @@ export function drawPath2D({
       pathConfig.ellipseTiltDeg,
       globalConfig.ellipseTiltDeg ?? 0
     ),
+    ellipseRotationDeg: resolveNumber(
+      pathConfig.ellipseRotationDeg,
+      globalConfig.ellipseRotationDeg ?? 0
+    ),
+    direction: pathConfig.direction ?? globalConfig.direction ?? "auto", // "clockwise", "anticlockwise", or "auto"
   };
 
   const delaySec = delayToSeconds(merged.delay);
@@ -607,10 +692,9 @@ export function drawPath2D({
   // Calculate alpha fade
   let alpha = 1.0;
   if (phase > maxPhase) {
-    const fadeMul = 1.0 - Math.min(
-      (phase - maxPhase) / Math.max(merged.fadeWindow, 0.0001),
-      1.0
-    );
+    const fadeMul =
+      1.0 -
+      Math.min((phase - maxPhase) / Math.max(merged.fadeWindow, 0.0001), 1.0);
     alpha *= fadeMul;
   } else if (segTail >= 1.0 - 0.0001) {
     const pastEnd = Math.max(0.0, phase - 1.0);
@@ -638,7 +722,7 @@ export function drawPath2D({
     for (let i = 0; i <= SAMPLE_COUNT; i++) {
       const t = segTail + (segHead - segTail) * (i / SAMPLE_COUNT);
       const tClamped = Math.max(0, Math.min(1, t));
-      
+
       const [x, y] = getCirclePathPosition(
         tClamped,
         a,
@@ -651,11 +735,13 @@ export function drawPath2D({
         metrics?.meetingTheta ?? 0,
         metrics?.ellipsePortion ?? 0.5,
         metrics?.circlePortion ?? 0.5,
-        metrics?.meetingCircleAngle ?? 0
+        metrics?.meetingCircleAngle ?? 0,
+        merged.direction ?? "clockwise"
       );
 
-      const along01 = (i / SAMPLE_COUNT);
-      const radius = merged.tailRadius + (merged.headRadius - merged.tailRadius) * along01;
+      const along01 = i / SAMPLE_COUNT;
+      const radius =
+        merged.tailRadius + (merged.headRadius - merged.tailRadius) * along01;
       points.push({ x, y, radius, along01 });
     }
   } else {
@@ -664,27 +750,32 @@ export function drawPath2D({
     let delta = normalizeDelta(endDir - startDir);
     let dir = Math.sign(delta) || 1;
     const thetaStartLocal = 0.0;
-    const thetaEndLocal = Math.abs(delta || Math.PI);
+    // Use thetaEndLocal from metrics if available, respecting direction
+    const thetaEndLocal = metrics?.thetaEndLocal ?? Math.abs(delta || Math.PI);
     const rotAngle = startDir;
 
     const a = merged.ellipse.a;
     const b = merged.ellipse.b;
-    
+
     // Use actualThetaEnd if available (from intersection calculation), otherwise use thetaEndLocal
     const actualThetaEnd = metrics?.actualThetaEnd ?? thetaEndLocal;
-    
+
     // Get BetSpot rect for intersection checking
-    const rect = anchorEl?.getBoundingClientRect ? anchorEl.getBoundingClientRect() : null;
+    const rect = anchorEl?.getBoundingClientRect
+      ? anchorEl.getBoundingClientRect()
+      : null;
     const halfWidth = rect ? rect.width / 2 : 50;
     const halfHeight = rect ? rect.height / 2 : 50;
-    
+
     // Use thetaEndLocal from metrics if available, otherwise calculate it
-    const initialPathEndTheta = metrics?.thetaEndLocal ?? thetaEndLocal;
+    // For the initial path (before return journey), we need the absolute value to calculate the ratio
+    // but we should use the signed value for the actual path
+    const initialPathEndTheta = Math.abs(metrics?.thetaEndLocal ?? thetaEndLocal);
 
     for (let i = 0; i <= SAMPLE_COUNT; i++) {
       const t = segTail + (segHead - segTail) * (i / SAMPLE_COUNT);
       const tClamped = Math.max(0, Math.min(1, t));
-      
+
       const [x, y] = getSparkPathPosition(
         tClamped,
         a,
@@ -694,25 +785,27 @@ export function drawPath2D({
         actualThetaEnd,
         centerX,
         centerY,
-        merged.ellipseTiltDeg
+        merged.ellipseTiltDeg,
+        merged.ellipseRotationDeg
       );
-      
+
       // Calculate if we're past the initial path (from startVertex to endVertex)
       // Use the ratio of path lengths to determine this
-      const totalPathRange = actualThetaEnd - thetaStartLocal;
-      const initialPathRange = initialPathEndTheta - thetaStartLocal;
-      const initialPathRatio = initialPathRange / Math.max(totalPathRange, 0.0001);
+      // Use absolute values for range calculations to handle both directions
+      const totalPathRange = Math.abs(actualThetaEnd - thetaStartLocal);
+      const initialPathRange = Math.abs(initialPathEndTheta - thetaStartLocal);
+      const initialPathRatio =
+        initialPathRange / Math.max(totalPathRange, 0.0001);
       const isPastInitialPath = tClamped > initialPathRatio;
-      
+
       // If we're past the initial path (return journey) and inside BetSpot, skip this point
       // This prevents the "dot" from appearing at the intersection point
       if (isPastInitialPath) {
-        const isInside = (
+        const isInside =
           x >= centerX - halfWidth &&
           x <= centerX + halfWidth &&
           y >= centerY - halfHeight &&
-          y <= centerY + halfHeight
-        );
+          y <= centerY + halfHeight;
         if (isInside) {
           // Stop drawing once we hit the BetSpot on return
           // Don't add this point or any subsequent points
@@ -720,8 +813,9 @@ export function drawPath2D({
         }
       }
 
-      const along01 = (i / SAMPLE_COUNT);
-      const radius = merged.tailRadius + (merged.headRadius - merged.tailRadius) * along01;
+      const along01 = i / SAMPLE_COUNT;
+      const radius =
+        merged.tailRadius + (merged.headRadius - merged.tailRadius) * along01;
       points.push({ x, y, radius, along01 });
     }
   }
