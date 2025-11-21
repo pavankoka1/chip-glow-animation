@@ -1,0 +1,368 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+import useFps from "../hooks/useFps";
+import { DEFAULT_CONFIG } from "./animation/constants";
+import { getAngleForVertex } from "./canvas2d/utils";
+import {
+  computeCirclePathLength2D,
+  computeSparkPathLength2D,
+  drawPath2D,
+} from "./canvas2d/pathUtils";
+
+export default function GlowAnimation2D({
+  anchorEl,
+  config = {},
+  isPlaying = false,
+  onAnimationComplete,
+}) {
+  const canvasRef = useRef(null);
+  const animationIdRef = useRef(null);
+  const lastTsRef = useRef(null);
+  const accumulatedSecRef = useRef(0);
+  const pathMetricsRef = useRef(new Map());
+  useFps({ sampleSize: 90 });
+
+  const delayToSeconds = (v) =>
+    typeof v === "number" && !Number.isNaN(v) ? (v > 20 ? v / 1000 : v) : 0;
+  const degToRad = (d) => (d * Math.PI) / 180;
+
+  const applyEasingSpark = (t) => {
+    const t1 = 1 - t;
+    return 1 - Math.pow(t1, 2.25);
+  };
+
+  const applyEasingCircle = (t) => {
+    return Math.pow(t, 1.5);
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      console.error("2D canvas not supported");
+      return;
+    }
+
+    const resizeCanvas = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    const animate = (ts) => {
+      if (!isPlaying) {
+        animationIdRef.current = null;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+
+      if (lastTsRef.current == null) lastTsRef.current = ts;
+      const dtSec = Math.min(0.05, (ts - lastTsRef.current) / 1000);
+      lastTsRef.current = ts;
+      accumulatedSecRef.current += dtSec;
+
+      const currentTimeSec = accumulatedSecRef.current;
+
+      let centerX = canvas.width / 2;
+      let centerY = canvas.height / 2;
+      let rect = null;
+      if (anchorEl?.getBoundingClientRect) {
+        rect = anchorEl.getBoundingClientRect();
+        centerX = rect.left + rect.width / 2;
+        centerY = rect.top + rect.height / 2;
+      }
+
+      const cfg = { ...DEFAULT_CONFIG, ...config };
+      const activePaths = (cfg.paths || []).filter((p) => p.enabled !== false);
+
+      // Compute path metrics for all paths
+      for (const p of activePaths) {
+        const isCirclePath =
+          p.type === "circle" || p.circleRadius !== undefined;
+
+        if (isCirclePath) {
+          const circleRadius = p.circleRadius ?? 30;
+
+          let autoA;
+          if (rect) {
+            const diagonal = Math.hypot(rect.width, rect.height);
+            autoA = diagonal / 2;
+          } else {
+            autoA = 141.4214;
+          }
+
+          const bVal = circleRadius;
+          const startVertex = p.startVertex || "BR";
+
+          const dynamicRotAngle =
+            startVertex === "BR" || startVertex === "TL"
+              ? (135 * Math.PI) / 180
+              : (45 * Math.PI) / 180;
+
+          const prev = pathMetricsRef.current.get(p.id);
+          if (
+            !prev ||
+            prev.centerX !== centerX ||
+            prev.centerY !== centerY ||
+            prev.a !== autoA ||
+            prev.b !== bVal ||
+            prev.rotAngle !== dynamicRotAngle ||
+            prev.circleRadius !== circleRadius ||
+            prev.startVertex !== startVertex ||
+            prev.isCircle !== true
+          ) {
+            const pathResult = computeCirclePathLength2D(
+              autoA,
+              bVal,
+              dynamicRotAngle,
+              centerX,
+              centerY,
+              circleRadius,
+              rect,
+              startVertex
+            );
+            pathMetricsRef.current.set(p.id, {
+              pathLength: pathResult.pathLength,
+              startTheta: pathResult.startTheta,
+              meetingTheta: pathResult.meetingTheta,
+              rotAngle: dynamicRotAngle,
+              ellipsePortion: pathResult.ellipsePortion,
+              circlePortion: pathResult.circlePortion,
+              meetingCircleAngle: pathResult.meetingCircleAngle,
+              centerX,
+              centerY,
+              a: autoA,
+              b: bVal,
+              circleRadius,
+              startVertex,
+              isCircle: true,
+            });
+          }
+        } else {
+          if (!p.startVertex || !p.endVertex) {
+            continue;
+          }
+          const startDir = getAngleForVertex(p.startVertex);
+          const endDir = getAngleForVertex(p.endVertex);
+          let delta =
+            ((((endDir - startDir + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) %
+              (2 * Math.PI)) -
+            Math.PI;
+          let dir = Math.sign(delta) || 1;
+          const thetaStartLocal = 0.0;
+          const thetaEndLocal = Math.abs(delta || Math.PI);
+          const rotAngle = startDir;
+
+          const ellipseCfg = p.ellipse || cfg.ellipse;
+          let autoA = ellipseCfg?.a;
+          let bVal = ellipseCfg?.b ?? 0.0;
+          if (rect && autoA === undefined) {
+            const diagonal = Math.hypot(rect.width, rect.height);
+            autoA = 10 + diagonal / 2;
+          } else if (autoA === undefined) {
+            autoA = 150;
+          }
+
+          const ellipseTiltDeg = p.ellipseTiltDeg ?? cfg.ellipseTiltDeg ?? 0;
+
+          const prev = pathMetricsRef.current.get(p.id);
+          if (
+            !prev ||
+            prev.centerX !== centerX ||
+            prev.centerY !== centerY ||
+            prev.a !== autoA ||
+            prev.b !== bVal ||
+            prev.thetaEndLocal !== thetaEndLocal ||
+            prev.rotAngle !== rotAngle ||
+            prev.dir !== dir ||
+            prev.ellipseTiltDeg !== ellipseTiltDeg ||
+            prev.isCircle === true
+          ) {
+            const pathLength = computeSparkPathLength2D(
+              autoA,
+              bVal,
+              rotAngle,
+              thetaStartLocal,
+              thetaEndLocal,
+              centerX,
+              centerY,
+              ellipseTiltDeg
+            );
+            pathMetricsRef.current.set(p.id, {
+              pathLength,
+              thetaEndLocal,
+              rotAngle,
+              dir,
+              centerX,
+              centerY,
+              a: autoA,
+              b: bVal,
+              ellipseTiltDeg,
+              isCircle: false,
+            });
+          }
+        }
+      }
+
+      // Check if all paths are complete
+      let allComplete = activePaths.length > 0;
+      const animationTimeMsGlobal =
+        cfg.animationTimeMs ?? DEFAULT_CONFIG.animationTimeMs;
+
+      for (const p of activePaths) {
+        const isCirclePathP =
+          p.type === "circle" || p.circleRadius !== undefined;
+        
+        const delayRaw = p.delay || 0;
+        const delaySec = delayToSeconds(delayRaw);
+        const durationSec =
+          (p.animationTimeMs ?? animationTimeMsGlobal) / 1000.0;
+        const elapsed = Math.max(0, currentTimeSec - delaySec);
+
+        const metrics = pathMetricsRef.current.get(p.id);
+        const lineLength = p.length ?? cfg.length ?? 300.0;
+        const pathLength = metrics?.pathLength || 1.0;
+        const segmentParam = lineLength / Math.max(pathLength, 0.0001);
+        const overshoot = p.overshoot ?? cfg.overshoot ?? 0.08;
+        const fadeWindow = p.fadeWindow ?? cfg.fadeWindow ?? 0.08;
+        const totalSpan = 1.0 + segmentParam + overshoot;
+
+        const normalizedTime = Math.min(
+          1.0,
+          Math.max(0.0, elapsed / Math.max(durationSec, 0.0001))
+        );
+
+        const scaledPhase = (isCirclePathP
+          ? applyEasingCircle(normalizedTime)
+          : applyEasingSpark(normalizedTime)) * totalSpan;
+        const completeThreshold = totalSpan + fadeWindow;
+
+        const fadeWindowDuration = (fadeWindow / totalSpan) * durationSec;
+        const totalDuration = durationSec + fadeWindowDuration;
+
+        const isPathComplete =
+          elapsed >= totalDuration || scaledPhase >= completeThreshold - 0.0001;
+
+        if (!isPathComplete) {
+          allComplete = false;
+        }
+      }
+
+      if (allComplete && activePaths.length > 0) {
+        animationIdRef.current = null;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (onAnimationComplete) onAnimationComplete();
+        return;
+      }
+
+      // Clear and draw
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (const path of activePaths) {
+        const isCirclePath =
+          path.type === "circle" || path.circleRadius !== undefined;
+
+        const delayRaw = path.delay || 0;
+        const delaySec = delayToSeconds(delayRaw);
+        const durationSec =
+          (path.animationTimeMs ?? animationTimeMsGlobal) / 1000.0;
+        const elapsed = Math.max(0, currentTimeSec - delaySec);
+        const normalizedTime = Math.min(
+          1.0,
+          Math.max(0.0, elapsed / Math.max(durationSec, 0.0001))
+        );
+
+        let easedNormalizedTime = isCirclePath
+          ? applyEasingCircle(normalizedTime)
+          : applyEasingSpark(normalizedTime);
+
+        if (normalizedTime >= 1.0) {
+          easedNormalizedTime = 1.0;
+        }
+
+        const metrics = pathMetricsRef.current.get(path.id);
+        const pathLength = metrics?.pathLength || 1.0;
+
+        const pathWithAutoEllipse = { ...path };
+        if (isCirclePath) {
+          const circleRadius = path.circleRadius ?? 30;
+
+          let autoA;
+          if (rect) {
+            const diagonal = Math.hypot(rect.width, rect.height);
+            autoA = diagonal / 2;
+          } else {
+            autoA = 141.4214;
+          }
+
+          const bVal = circleRadius;
+          pathWithAutoEllipse.ellipse = {
+            ...(path.ellipse || {}),
+            a: autoA,
+            b: bVal,
+          };
+        } else {
+          const ellipseCfg = path.ellipse || cfg.ellipse;
+          let autoA = ellipseCfg?.a;
+          let bVal = ellipseCfg?.b ?? 0.0;
+          if (rect && autoA === undefined) {
+            const diagonal = Math.hypot(rect.width, rect.height);
+            autoA = 10 + diagonal / 2;
+          } else if (autoA === undefined) {
+            autoA = 150;
+          }
+          pathWithAutoEllipse.ellipse = {
+            ...(path.ellipse || {}),
+            a: autoA,
+            b: bVal,
+          };
+        }
+
+        drawPath2D({
+          ctx,
+          canvas,
+          anchorCenter: [centerX, centerY],
+          timeNowSec: currentTimeSec,
+          globalConfig: cfg,
+          pathConfig: pathWithAutoEllipse,
+          easedNormalizedTime,
+          totalArcPx: pathLength,
+          metrics,
+          isCirclePath,
+        });
+      }
+
+      animationIdRef.current = requestAnimationFrame(animate);
+    };
+
+    if (isPlaying && !animationIdRef.current) {
+      lastTsRef.current = null;
+      accumulatedSecRef.current = 0;
+      animationIdRef.current = requestAnimationFrame(animate);
+    } else if (!isPlaying && animationIdRef.current) {
+      cancelAnimationFrame(animationIdRef.current);
+      animationIdRef.current = null;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    return () => {
+      if (animationIdRef.current) {
+        cancelAnimationFrame(animationIdRef.current);
+        animationIdRef.current = null;
+      }
+      window.removeEventListener("resize", resizeCanvas);
+    };
+  }, [anchorEl, config, isPlaying, onAnimationComplete]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="fixed inset-0 pointer-events-none"
+      style={{ zIndex: 0 }}
+    />
+  );
+}
