@@ -5,6 +5,7 @@ import useFps from "../hooks/useFps";
 import { DEFAULT_CONFIG } from "./animation/constants";
 import {
   computeCirclePathLength2D,
+  computeLinePathLength2D,
   computeSparkPathLength2D,
   drawPath2D,
 } from "./canvas2d/pathUtils";
@@ -34,6 +35,12 @@ export default function GlowAnimation2D({
 
   const applyEasingCircle = (t) => {
     return Math.pow(t, 1.5);
+  };
+
+  const applyEasingLine = (t) => {
+    // Smooth easing for line animation: ease-in-out cubic
+    // This provides a natural acceleration and deceleration
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   };
 
   useEffect(() => {
@@ -83,8 +90,45 @@ export default function GlowAnimation2D({
       for (const p of activePaths) {
         const isCirclePath =
           p.type === "circle" || p.circleRadius !== undefined;
+        const isLinePath = p.type === "line";
 
-        if (isCirclePath) {
+        if (isLinePath) {
+          // Line path: travel around BetSpot border
+          const startPoint = p.startPoint ?? 0; // Start point in radians (360 = full round)
+          const direction = p.direction ?? cfg.direction ?? "clockwise";
+
+          const prev = pathMetricsRef.current.get(p.id);
+          if (
+            !prev ||
+            prev.centerX !== centerX ||
+            prev.centerY !== centerY ||
+            prev.startPoint !== startPoint ||
+            prev.direction !== direction ||
+            prev.isLine !== true ||
+            prev.rectWidth !== rect?.width ||
+            prev.rectHeight !== rect?.height
+          ) {
+            const pathResult = computeLinePathLength2D(
+              centerX,
+              centerY,
+              rect,
+              startPoint, // Now accepts radians
+              direction
+            );
+            pathMetricsRef.current.set(p.id, {
+              pathLength: pathResult.pathLength,
+              centerX,
+              centerY,
+              startPoint: pathResult.startPoint,
+              direction: pathResult.direction,
+              halfWidth: pathResult.halfWidth,
+              halfHeight: pathResult.halfHeight,
+              isLine: true,
+              rectWidth: rect?.width,
+              rectHeight: rect?.height,
+            });
+          }
+        } else if (isCirclePath) {
           const circleRadius = p.circleRadius ?? 30;
 
           let autoA;
@@ -247,6 +291,7 @@ export default function GlowAnimation2D({
       for (const p of activePaths) {
         const isCirclePathP =
           p.type === "circle" || p.circleRadius !== undefined;
+        const isLinePathP = p.type === "line";
 
         const delayRaw = p.delay || 0;
         const delaySec = delayToSeconds(delayRaw);
@@ -270,6 +315,8 @@ export default function GlowAnimation2D({
         const scaledPhase =
           (isCirclePathP
             ? applyEasingCircle(normalizedTime)
+            : isLinePathP
+            ? applyEasingLine(normalizedTime) // Apply easing for line
             : applyEasingSpark(normalizedTime)) * totalSpan;
         const completeThreshold = totalSpan + fadeWindow;
 
@@ -297,6 +344,7 @@ export default function GlowAnimation2D({
       for (const path of activePaths) {
         const isCirclePath =
           path.type === "circle" || path.circleRadius !== undefined;
+        const isLinePath = path.type === "line";
 
         const delayRaw = path.delay || 0;
         const delaySec = delayToSeconds(delayRaw);
@@ -310,6 +358,8 @@ export default function GlowAnimation2D({
 
         let easedNormalizedTime = isCirclePath
           ? applyEasingCircle(normalizedTime)
+          : isLinePath
+          ? applyEasingLine(normalizedTime) // Apply easing for line
           : applyEasingSpark(normalizedTime);
 
         if (normalizedTime >= 1.0) {
@@ -337,7 +387,8 @@ export default function GlowAnimation2D({
             a: autoA,
             b: bVal,
           };
-        } else {
+        } else if (!isLinePath) {
+          // Only set up ellipse for spark paths, not line paths
           const ellipseCfg = path.ellipse || cfg.ellipse;
           let autoA = ellipseCfg?.a;
           let bVal = ellipseCfg?.b ?? 0.0;
@@ -365,7 +416,10 @@ export default function GlowAnimation2D({
           totalArcPx: pathLength,
           metrics,
           isCirclePath,
+          isLinePath, // Pass isLinePath flag
           anchorEl,
+          elapsed, // Pass elapsed time for fadeIn/fadeOut calculation
+          durationSec, // Pass duration for fadeOut calculation
         });
       }
 

@@ -390,7 +390,9 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
                   >
                     <Chip
                       label={
-                        path.type === "circle"
+                        path.type === "line"
+                          ? `Line: ${path.startPoint ?? 0}°`
+                          : path.type === "circle"
                           ? `Circle: ${path.startVertex || "BR"}`
                           : `Spark: ${path.startVertex || "TR"} → ${
                               path.endVertex || "BL"
@@ -469,22 +471,41 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
                         >
                           Circle
                         </Button>
+                        <Button
+                          variant={path.type === "line" ? "contained" : "outlined"}
+                          onClick={() => setPath(path.id, { type: "line" })}
+                          size="small"
+                          sx={{
+                            minWidth: 0,
+                            px: 2,
+                            borderColor: "rgba(255, 215, 0, 0.4)",
+                            color: path.type === "line" ? "#000" : "#FFD700",
+                            backgroundColor: path.type === "line" ? "#FFD700" : "transparent",
+                            "&:hover": {
+                              backgroundColor: path.type === "line" ? "#FFA500" : "rgba(255, 215, 0, 0.1)",
+                            },
+                          }}
+                        >
+                          Line
+                        </Button>
                       </Box>
                     </Box>
-                    <Box>
-                      <Typography
-                        variant="body2"
-                        gutterBottom
-                        sx={{ color: "#FFD700", fontWeight: 500 }}
-                      >
-                        Start Vertex
-                      </Typography>
-                      <VertexPicker
-                        value={path.startVertex || (path.type === "circle" ? "BR" : "TR")}
-                        onChange={(v) => setPath(path.id, { startVertex: v })}
-                      />
-                    </Box>
-                    {path.type !== "circle" && (
+                    {path.type !== "line" && (
+                      <Box>
+                        <Typography
+                          variant="body2"
+                          gutterBottom
+                          sx={{ color: "#FFD700", fontWeight: 500 }}
+                        >
+                          Start Vertex
+                        </Typography>
+                        <VertexPicker
+                          value={path.startVertex || (path.type === "circle" ? "BR" : "TR")}
+                          onChange={(v) => setPath(path.id, { startVertex: v })}
+                        />
+                      </Box>
+                    )}
+                    {path.type !== "circle" && path.type !== "line" && (
                       <Box>
                         <Typography
                           variant="body2"
@@ -518,6 +539,109 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
                           valueLabelDisplay="auto"
                         />
                       </Box>
+                    )}
+                    {path.type === "line" && (
+                      <>
+                        <Box>
+                          <Typography
+                            variant="body2"
+                            gutterBottom
+                            sx={{ color: "#FFD700", fontWeight: 500 }}
+                          >
+                            Start Point (degrees, 0=top, 90=right, 180=bottom, 270=left)
+                          </Typography>
+                          <Slider
+                            size="small"
+                            value={path.startPoint ?? 0}
+                            onChange={(_e, v) => setPath(path.id, { startPoint: v })}
+                            min={0}
+                            max={360}
+                            step={1}
+                            valueLabelDisplay="auto"
+                          />
+                        </Box>
+                        <Box>
+                          <Typography
+                            variant="body2"
+                            gutterBottom
+                            sx={{ color: "#FFD700", fontWeight: 500 }}
+                          >
+                            Coverage (degrees, 360 = full round)
+                          </Typography>
+                          <Slider
+                            size="small"
+                            value={path.coverage ?? 360}
+                            onChange={(_e, v) => setPath(path.id, { coverage: v })}
+                            min={0}
+                            max={720}
+                            step={1}
+                            valueLabelDisplay="auto"
+                          />
+                        </Box>
+                        <Box>
+                          <Typography
+                            variant="body2"
+                            gutterBottom
+                            sx={{ color: "#FFD700", fontWeight: 500 }}
+                          >
+                            Line Width (px)
+                          </Typography>
+                          <Slider
+                            size="small"
+                            value={path.lineWidth ?? 1}
+                            onChange={(_e, v) => setPath(path.id, { lineWidth: v })}
+                            min={0.1}
+                            max={10}
+                            step={0.1}
+                            valueLabelDisplay="auto"
+                          />
+                        </Box>
+                        <Box>
+                          <Typography
+                            variant="body2"
+                            gutterBottom
+                            sx={{ color: "#FFD700", fontWeight: 500 }}
+                          >
+                            Direction
+                          </Typography>
+                          <Box display="flex" gap={1}>
+                            <Button
+                              variant={path.direction === "clockwise" || !path.direction ? "contained" : "outlined"}
+                              onClick={() => setPath(path.id, { direction: "clockwise" })}
+                              size="small"
+                              sx={{
+                                minWidth: 0,
+                                px: 2,
+                                borderColor: "rgba(255, 215, 0, 0.4)",
+                                color: path.direction === "clockwise" || !path.direction ? "#000" : "#FFD700",
+                                backgroundColor: path.direction === "clockwise" || !path.direction ? "#FFD700" : "transparent",
+                                "&:hover": {
+                                  backgroundColor: path.direction === "clockwise" || !path.direction ? "#FFA500" : "rgba(255, 215, 0, 0.1)",
+                                },
+                              }}
+                            >
+                              Clockwise
+                            </Button>
+                            <Button
+                              variant={path.direction === "anticlockwise" ? "contained" : "outlined"}
+                              onClick={() => setPath(path.id, { direction: "anticlockwise" })}
+                              size="small"
+                              sx={{
+                                minWidth: 0,
+                                px: 2,
+                                borderColor: "rgba(255, 215, 0, 0.4)",
+                                color: path.direction === "anticlockwise" ? "#000" : "#FFD700",
+                                backgroundColor: path.direction === "anticlockwise" ? "#FFD700" : "transparent",
+                                "&:hover": {
+                                  backgroundColor: path.direction === "anticlockwise" ? "#FFA500" : "rgba(255, 215, 0, 0.1)",
+                                },
+                              }}
+                            >
+                              Anticlockwise
+                            </Button>
+                          </Box>
+                        </Box>
+                      </>
                     )}
 
                     <Box>

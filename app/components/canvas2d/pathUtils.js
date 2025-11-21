@@ -17,6 +17,10 @@ function getVertexCoords(vertexId, rect) {
       TR: [50, 50], // Top-Right: positive X, positive Y
       BR: [50, -50], // Bottom-Right: positive X, negative Y
       BL: [-50, -50], // Bottom-Left: negative X, negative Y
+      T: [0, 50], // Top center
+      B: [0, -50], // Bottom center
+      L: [-50, 0], // Left center
+      R: [50, 0], // Right center
     };
     return fallback[vertexId] || [50, -50]; // Default to BR
   }
@@ -29,11 +33,19 @@ function getVertexCoords(vertexId, rect) {
   // TR: (halfWidth, halfHeight)
   // BR: (halfWidth, -halfHeight)
   // BL: (-halfWidth, -halfHeight)
+  // T: (0, halfHeight) - Top center
+  // B: (0, -halfHeight) - Bottom center
+  // L: (-halfWidth, 0) - Left center
+  // R: (halfWidth, 0) - Right center
   const coords = {
     TL: [-halfWidth, halfHeight],
     TR: [halfWidth, halfHeight],
     BR: [halfWidth, -halfHeight],
     BL: [-halfWidth, -halfHeight],
+    T: [0, halfHeight],
+    B: [0, -halfHeight],
+    L: [-halfWidth, 0],
+    R: [halfWidth, 0],
   };
 
   return coords[vertexId] || [halfWidth, -halfHeight]; // Default to BR
@@ -287,6 +299,212 @@ export function computeSparkPathLength2D(
   return { pathLength: total, actualThetaEnd };
 }
 
+// Compute path length for line path (traveling around BetSpot border)
+export function computeLinePathLength2D(
+  centerX,
+  centerY,
+  rect = null,
+  startPoint = 0, // Start point in radians (360 = full round)
+  direction = "clockwise"
+) {
+  if (!rect) {
+    // Fallback: assume 200x200 betspot
+    const fallbackPerimeter = 2 * (200 + 200); // 2 * (width + height)
+    return {
+      pathLength: fallbackPerimeter,
+      startPoint,
+      direction,
+      halfWidth: 100,
+      halfHeight: 100,
+    };
+  }
+
+  const halfWidth = rect.width / 2;
+  const halfHeight = rect.height / 2;
+
+  // Perimeter of rectangle: 2 * (width + height)
+  const perimeter = 2 * (rect.width + rect.height);
+
+  return {
+    pathLength: perimeter,
+    startPoint,
+    direction,
+    halfWidth,
+    halfHeight,
+  };
+}
+
+// Get position along line path (traveling around border)
+// startPointRad: starting position in radians (360 = full round)
+// Returns position at distance along perimeter
+function getLinePathPositionByDistance(
+  distance, // Absolute distance along perimeter (0 to perimeter)
+  centerX,
+  centerY,
+  halfWidth,
+  halfHeight,
+  startPointRad, // Starting position offset in radians (360 = full round), if 0 then distance is absolute
+  direction = "clockwise"
+) {
+  // Defensive checks for invalid inputs
+  const safeHalfWidth = halfWidth || 50;
+  const safeHalfHeight = halfHeight || 50;
+
+  const width = safeHalfWidth * 2;
+  const height = safeHalfHeight * 2;
+  const perimeter = 2 * (width + height);
+
+  // If perimeter is 0 or invalid, return center
+  if (perimeter <= 0 || !isFinite(perimeter)) {
+    return { x: centerX, y: centerY, angle: 0 };
+  }
+
+  // If startPointRad is provided, add it as an offset
+  let adjustedDistance = distance;
+  if (startPointRad !== 0) {
+    const startPointFraction = (((startPointRad % 360) + 360) % 360) / 360.0;
+    const startDistance = startPointFraction * perimeter;
+    adjustedDistance = (startDistance + distance) % perimeter;
+  }
+
+  // Normalize to [0, perimeter)
+  adjustedDistance =
+    adjustedDistance < 0 ? adjustedDistance + perimeter : adjustedDistance;
+  adjustedDistance = adjustedDistance % perimeter;
+
+  const isClockwise = direction !== "anticlockwise";
+
+  // Define edges in clockwise order
+  const corners = {
+    TL: [-safeHalfWidth, safeHalfHeight],
+    TR: [safeHalfWidth, safeHalfHeight],
+    BR: [safeHalfWidth, -safeHalfHeight],
+    BL: [-safeHalfWidth, -safeHalfHeight],
+  };
+
+  const edges = [
+    { from: "TL", to: "TR", length: width, angle: 0 }, // Top: right
+    { from: "TR", to: "BR", length: height, angle: Math.PI / 2 }, // Right: down
+    { from: "BR", to: "BL", length: width, angle: Math.PI }, // Bottom: left
+    { from: "BL", to: "TL", length: height, angle: -Math.PI / 2 }, // Left: up
+  ];
+
+  // Always use the same edge order [0,1,2,3] to find which edge contains a given distance
+  // This ensures consistent distance mapping regardless of direction
+  // The direction only affects how we traverse along each edge (from 'from' to 'to' or vice versa)
+  const edgeOrder = [0, 1, 2, 3]; // Always check edges in clockwise order for distance mapping
+
+  // Find which edge we're on and position within that edge
+  let remainingDist = adjustedDistance;
+  let currentEdgeIdx = 0;
+  let edgeCount = 0;
+
+  // Handle the case where remainingDist is exactly 0
+  while (remainingDist >= 0 && edgeCount < 4) {
+    const edgeIdx = edgeOrder[currentEdgeIdx % 4];
+    const edge = edges[edgeIdx];
+
+    if (!edge) {
+      // Safety check: if edge is undefined, break
+      break;
+    }
+
+    const [fromX, fromY] = corners[edge.from];
+    const [toX, toY] = corners[edge.to];
+    const edgeLen = edge.length;
+
+    if (remainingDist <= edgeLen) {
+      // We're on this edge
+      const tOnEdge = edgeLen > 0 ? remainingDist / edgeLen : 0;
+
+      // For clockwise: travel from 'from' to 'to' along the edge
+      // For anticlockwise: travel from 'to' to 'from' along the edge (reverse direction)
+      let startX, startY, endX, endY;
+      if (isClockwise) {
+        startX = fromX;
+        startY = fromY;
+        endX = toX;
+        endY = toY;
+      } else {
+        // Anticlockwise: reverse the edge direction
+        startX = toX;
+        startY = toY;
+        endX = fromX;
+        endY = fromY;
+      }
+
+      // Interpolate along the edge
+      const x = startX + (endX - startX) * tOnEdge;
+      const y = startY + (endY - startY) * tOnEdge;
+
+      let angle = edge.angle;
+      if (!isClockwise) angle += Math.PI;
+
+      // Convert to screen coordinates
+      const screenX = x + centerX;
+      const screenY = -y + centerY;
+
+      return { x: screenX, y: screenY, angle };
+    }
+
+    remainingDist -= edgeLen;
+    currentEdgeIdx++;
+    edgeCount++;
+  }
+
+  // Fallback to end of path - handle edge case where we might not have found an edge
+  // Handle negative modulo properly: (currentEdgeIdx - 1 + 4) % 4 ensures we get a valid index
+  const fallbackEdgeIdx = (currentEdgeIdx - 1 + 4) % 4;
+  const lastEdgeIdx =
+    fallbackEdgeIdx >= 0 && fallbackEdgeIdx < edgeOrder.length
+      ? edgeOrder[fallbackEdgeIdx]
+      : undefined;
+
+  if (
+    lastEdgeIdx !== undefined &&
+    lastEdgeIdx >= 0 &&
+    lastEdgeIdx < edges.length
+  ) {
+    const lastEdge = edges[lastEdgeIdx];
+    if (lastEdge && lastEdge.from && lastEdge.to) {
+      const cornerKey = isClockwise ? lastEdge.to : lastEdge.from;
+      const corner = corners[cornerKey];
+      if (corner && Array.isArray(corner) && corner.length >= 2) {
+        const [endX, endY] = corner;
+        return { x: endX + centerX, y: -endY + centerY, angle: 0 };
+      }
+    }
+  }
+
+  // Ultimate fallback: return center position
+  return { x: centerX, y: centerY, angle: 0 };
+}
+
+// Legacy function for backward compatibility - converts t to distance
+function getLinePathPosition(
+  t, // 0 to 1
+  centerX,
+  centerY,
+  halfWidth,
+  halfHeight,
+  startPointRad, // Starting position in radians (360 = full round)
+  direction = "clockwise"
+) {
+  const width = halfWidth * 2;
+  const height = halfHeight * 2;
+  const perimeter = 2 * (width + height);
+  const distance = Math.max(0, Math.min(1, t)) * perimeter;
+  return getLinePathPositionByDistance(
+    distance,
+    centerX,
+    centerY,
+    halfWidth,
+    halfHeight,
+    startPointRad,
+    direction
+  );
+}
+
 // Compute path length for circle path (ellipse to circle transition)
 export function computeCirclePathLength2D(
   a,
@@ -388,7 +606,7 @@ export function computeCirclePathLength2D(
   // For anticlockwise: 90° anticlockwise from start vertex (add PI/2)
   const startAngle = Math.atan2(startVertexY, startVertexX);
   const directionSign = direction === "anticlockwise" ? 1 : -1;
-  const meetingAngle = startAngle + directionSign * Math.PI / 2;
+  const meetingAngle = startAngle + (directionSign * Math.PI) / 2;
   const meetingPointX = circleRadius * Math.cos(meetingAngle);
   const meetingPointY = circleRadius * Math.sin(meetingAngle);
 
@@ -548,6 +766,327 @@ function getCirclePathPosition(
   }
 }
 
+// Draw a continuous line along the border with smooth corners
+// startPointRad: starting position in radians (360 = full round)
+// coverageRad: coverage in radians (360 = full round)
+// length: line length in px, defaults to betSpot side length
+// easedNormalizedTime: 0 to 1, controls line growth from 0 to full length
+// directionSign: 1 for anticlockwise, -1 for clockwise (inverted to fix direction issue)
+function drawLinePath(
+  ctx,
+  centerX,
+  centerY,
+  halfWidth,
+  halfHeight,
+  startPointRad, // Starting position in radians (360 = full round)
+  direction,
+  coverageRad, // Coverage in radians (360 = full round)
+  length, // Line length in px
+  lineWidth,
+  color,
+  glowRadius,
+  glowColor,
+  alpha = 1,
+  easedNormalizedTime = 1.0, // Animation progress 0 to 1
+  directionSign = 1 // 1 for anticlockwise, -1 for clockwise (inverted to fix direction issue)
+) {
+  const width = halfWidth * 2;
+  const height = halfHeight * 2;
+  const perimeter = 2 * (width + height);
+
+  // Default length to betSpot side length (average of width and height)
+  const defaultLength = (width + height) / 2;
+  const targetLineLength =
+    length !== undefined && length > 0 ? length : defaultLength;
+
+  // Convert coverage from radians (360 = full round) to distance
+  let coverageFraction;
+  if (Math.abs(coverageRad) < 0.001) {
+    coverageFraction = 0.0;
+  } else {
+    const coverageMod = Math.abs(coverageRad % 360);
+    if (coverageMod < 0.001 || Math.abs(coverageMod - 360) < 0.001) {
+      coverageFraction = 1.0;
+    } else {
+      coverageFraction = (((coverageRad % 360) + 360) % 360) / 360.0;
+    }
+  }
+  const coverageDistance = coverageFraction * perimeter;
+
+  // Two-phase animation:
+  // Phase 1: Line grows from 0 to targetLineLength (caterpillar growth)
+  // Phase 2: Line of fixed length targetLineLength moves along the perimeter
+  //
+  // Determine the ratio of time for phase 1 vs phase 2
+  // Phase 1 should be relatively short - just enough to grow the line to full length
+  // Phase 2 should be the rest - moving the line along the perimeter
+  const GROWTH_PHASE_RATIO = 0.25; // 25% of animation time for growth, 75% for movement
+
+  let actualLineLength;
+  let lineStartDistance;
+  let lineEndDistance;
+
+  if (easedNormalizedTime <= GROWTH_PHASE_RATIO) {
+    // Phase 1: Line grows from 0 to targetLineLength
+    const growthProgress = easedNormalizedTime / GROWTH_PHASE_RATIO;
+    actualLineLength = targetLineLength * growthProgress;
+
+    // Start point stays fixed at startPointRad
+    const startPointFraction = (((startPointRad % 360) + 360) % 360) / 360.0;
+    lineStartDistance = startPointFraction * perimeter;
+    lineEndDistance = lineStartDistance + actualLineLength * directionSign;
+  } else {
+    // Phase 2: Line of fixed length moves along the perimeter
+    actualLineLength = targetLineLength;
+
+    // Movement progress: 0 to 1 over the remaining 75% of animation
+    const movementProgress =
+      (easedNormalizedTime - GROWTH_PHASE_RATIO) / (1 - GROWTH_PHASE_RATIO);
+
+    // Start point moves along the perimeter based on coverage
+    const startPointFraction = (((startPointRad % 360) + 360) % 360) / 360.0;
+    const baseStartDistance = startPointFraction * perimeter;
+
+    // Move the line along the perimeter by coverageDistance * movementProgress
+    const travelDistance = coverageDistance * movementProgress;
+    lineStartDistance = baseStartDistance + travelDistance * directionSign;
+    lineEndDistance = lineStartDistance + actualLineLength * directionSign;
+  }
+
+  if (actualLineLength <= 0) {
+    return;
+  }
+
+  // Normalize distances to [0, perimeter)
+  const normalizeDistance = (dist) => {
+    let normalized = dist % perimeter;
+    if (normalized < 0) normalized += perimeter;
+    return normalized;
+  };
+
+  const actualStartDist = normalizeDistance(lineStartDistance);
+  const actualEndDist = normalizeDistance(lineEndDistance);
+
+  // Check if line wraps around based on actual line length
+  // For clockwise: if we go past perimeter
+  // For anticlockwise: if we go past 0
+  const wrapped =
+    directionSign > 0
+      ? lineEndDistance > perimeter && actualEndDist < actualStartDist
+      : lineEndDistance < 0 && actualEndDist > actualStartDist;
+
+  // Special case: if coverage is exactly 360 and the line is actually drawing the full perimeter, we need to wrap
+  const isFullRoundCoverage =
+    Math.abs(coverageRad % 360) < 0.001 ||
+    Math.abs(Math.abs(coverageRad) - 360) < 0.001;
+  const shouldForceWrapForFullRound =
+    isFullRoundCoverage && Math.abs(actualLineLength - perimeter) < 0.001;
+
+  const finalWrapped = wrapped || shouldForceWrapForFullRound;
+
+  // Sample points along the line segment
+  const SAMPLE_COUNT = 150;
+  const points = [];
+
+  if (actualLineLength > 0) {
+    if (finalWrapped) {
+      // Line wraps around the perimeter
+      if (directionSign > 0) {
+        // Clockwise wrap: start -> perimeter, then 0 -> end
+        const firstPartLength = perimeter - actualStartDist;
+        // Handle full round case: if actualEndDist == actualStartDist, we want to draw the full perimeter
+        // In this case, secondPartLength should be actualStartDist to complete the round
+        const secondPartLength =
+          Math.abs(actualEndDist - actualStartDist) < 0.001 &&
+          Math.abs(actualLineLength - perimeter) < 0.001
+            ? actualStartDist // Full round: draw from 0 back to start
+            : actualEndDist; // Normal wrap: draw from 0 to end
+        const totalLength = firstPartLength + secondPartLength;
+
+        if (totalLength > 0) {
+          const firstPartSamples = Math.max(
+            1,
+            Math.floor(SAMPLE_COUNT * (firstPartLength / totalLength))
+          );
+          const secondPartSamples = Math.max(
+            1,
+            Math.floor(SAMPLE_COUNT * (secondPartLength / totalLength))
+          );
+
+          // First part: from start to perimeter
+          for (let i = 0; i <= firstPartSamples; i++) {
+            const t = firstPartSamples > 0 ? i / firstPartSamples : 0;
+            const distance = actualStartDist + firstPartLength * t;
+            const { x, y } = getLinePathPositionByDistance(
+              distance,
+              centerX,
+              centerY,
+              halfWidth,
+              halfHeight,
+              0,
+              direction
+            );
+            points.push({ x, y });
+          }
+
+          // Second part: from 0 to end
+          for (let i = 0; i <= secondPartSamples; i++) {
+            const t = secondPartSamples > 0 ? i / secondPartSamples : 0;
+            const distance = secondPartLength * t;
+            const { x, y } = getLinePathPositionByDistance(
+              distance,
+              centerX,
+              centerY,
+              halfWidth,
+              halfHeight,
+              0,
+              direction
+            );
+            points.push({ x, y });
+          }
+        }
+      } else {
+        // Anticlockwise wrap: start -> 0, then perimeter -> end
+        const firstPartLength = actualStartDist;
+        // Handle full round case: if actualEndDist == actualStartDist, we want to draw the full perimeter
+        // In this case, secondPartLength should be perimeter - actualStartDist to complete the round
+        const secondPartLength =
+          Math.abs(actualEndDist - actualStartDist) < 0.001 &&
+          Math.abs(actualLineLength - perimeter) < 0.001
+            ? perimeter - actualStartDist // Full round: draw from perimeter back to start
+            : perimeter - actualEndDist; // Normal wrap: draw from perimeter to end
+        const totalLength = firstPartLength + secondPartLength;
+
+        if (totalLength > 0) {
+          const firstPartSamples = Math.max(
+            1,
+            Math.floor(SAMPLE_COUNT * (firstPartLength / totalLength))
+          );
+          const secondPartSamples = Math.max(
+            1,
+            Math.floor(SAMPLE_COUNT * (secondPartLength / totalLength))
+          );
+
+          // First part: from start to 0 (going backwards)
+          for (let i = 0; i <= firstPartSamples; i++) {
+            const t = firstPartSamples > 0 ? i / firstPartSamples : 0;
+            const distance = actualStartDist - firstPartLength * t;
+            const normalizedDist = normalizeDistance(distance);
+            const { x, y } = getLinePathPositionByDistance(
+              normalizedDist,
+              centerX,
+              centerY,
+              halfWidth,
+              halfHeight,
+              0,
+              direction
+            );
+            points.push({ x, y });
+          }
+
+          // Second part: from perimeter to end (going backwards)
+          for (let i = 0; i <= secondPartSamples; i++) {
+            const t = secondPartSamples > 0 ? i / secondPartSamples : 0;
+            const distance = perimeter - secondPartLength * t;
+            const normalizedDist = normalizeDistance(distance);
+            const { x, y } = getLinePathPositionByDistance(
+              normalizedDist,
+              centerX,
+              centerY,
+              halfWidth,
+              halfHeight,
+              0,
+              direction
+            );
+            points.push({ x, y });
+          }
+        }
+      }
+    } else {
+      // Normal case: line doesn't wrap
+      // Draw from lineStartDistance to lineEndDistance
+      // Sample points along the line segment of length actualLineLength
+      for (let i = 0; i <= SAMPLE_COUNT; i++) {
+        const t = SAMPLE_COUNT > 0 ? i / SAMPLE_COUNT : 0;
+        // Distance along the line from start
+        const distanceAlongLine = actualLineLength * t;
+        // Start from lineStartDistance and move in the direction
+        const distance = lineStartDistance + distanceAlongLine * directionSign;
+        const normalizedDist = normalizeDistance(distance);
+        const { x, y } = getLinePathPositionByDistance(
+          normalizedDist,
+          centerX,
+          centerY,
+          halfWidth,
+          halfHeight,
+          0,
+          direction
+        );
+        points.push({ x, y });
+      }
+    }
+  }
+
+  if (points.length < 2) {
+    return;
+  }
+
+  // Ensure lineWidth is a number and supports decimals
+  // This ensures the exact value is preserved, including decimal values
+  // Convert to number if it's a string, allow 0 as valid value
+  let processedLineWidth = lineWidth;
+  if (typeof lineWidth === "string") {
+    processedLineWidth = parseFloat(lineWidth);
+  }
+
+  // Must be > 0 to be visible, default to 1 if invalid
+  const finalLineWidth =
+    typeof processedLineWidth === "number" &&
+    !Number.isNaN(processedLineWidth) &&
+    processedLineWidth > 0
+      ? processedLineWidth
+      : 1;
+
+  const [r, g, b] = hexToRgb(color);
+  const [gr, gg, gb] = hexToRgb(glowColor);
+
+  ctx.save();
+
+  // Draw glow first (behind the line) if glowRadius > 0
+  if (glowRadius > 0) {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+
+    // Draw smooth continuous path - lineJoin="round" will handle smooth corners
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+
+    ctx.strokeStyle = `rgba(${gr}, ${gg}, ${gb}, ${0.95 * alpha})`;
+    ctx.lineWidth = finalLineWidth + glowRadius * 2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round"; // This creates smooth bending at corners
+    ctx.stroke();
+  }
+
+  // Draw the main line
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+
+  // Draw smooth continuous path
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+
+  ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  ctx.lineWidth = finalLineWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round"; // This creates smooth bending at corners
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 // Draw a single point with glow effect
 function drawGlowPoint(
   ctx,
@@ -576,7 +1115,7 @@ function drawGlowPoint(
   if (glowRadius > 0) {
     const totalRadius = radius + glowRadius;
     const coreRatio = radius / totalRadius;
-    
+
     // Create radial gradient starting from center for true aura effect
     // This makes the glow feel like light radiating from the spark itself
     const gradient = ctx.createRadialGradient(
@@ -591,20 +1130,20 @@ function drawGlowPoint(
     // Create a special, ethereal aura with natural light falloff
     // Use exponential decay for realistic light behavior - feels like real light emanating
     const maxAuraAlpha = 0.95 * alpha; // Strong, vibrant aura
-    
+
     // Generate many color stops for ultra-smooth, ethereal gradient
     // More stops = smoother transition = more special, professional look
     const numStops = 16; // Even more stops for silky smooth aura
-    
+
     for (let i = 0; i <= numStops; i++) {
       const t = i / numStops; // 0 to 1
-      
+
       // Exponential falloff with power 2.8 for natural light decay
       // This creates a smooth, ethereal fade that feels like real light radiating
       // Power 2.8 gives a nice balance - not too sharp, not too gradual
       const falloff = Math.pow(1 - t, 2.8);
       let auraAlpha = maxAuraAlpha * falloff;
-      
+
       // Ensure smooth, continuous fade without harsh transitions
       // Maintain high intensity near center for that special "glowing" feel
       gradient.addColorStop(t, `rgba(${gr}, ${gg}, ${gb}, ${auraAlpha})`);
@@ -629,7 +1168,10 @@ export function drawPath2D({
   totalArcPx,
   metrics,
   isCirclePath,
+  isLinePath = false, // Line path flag
   anchorEl,
+  elapsed = 0, // Elapsed time since delay in seconds
+  durationSec = 1, // Animation duration in seconds
 }) {
   const merged = {
     animationTimeMs: resolveNumber(
@@ -645,7 +1187,7 @@ export function drawPath2D({
       pathConfig.tailRadius,
       globalConfig.tailRadius ?? 2
     ),
-    length: resolveNumber(pathConfig.length, globalConfig.length),
+    length: resolveNumber(pathConfig.length, globalConfig.length), // Spark length for segmentParam
     delay: resolveNumber(pathConfig.delay, 0),
     ellipse: resolveEllipse(pathConfig.ellipse, globalConfig.ellipse),
     overshoot: resolveNumber(
@@ -667,45 +1209,144 @@ export function drawPath2D({
       globalConfig.ellipseRotationDeg ?? 0
     ),
     direction: pathConfig.direction ?? globalConfig.direction ?? "auto", // "clockwise", "anticlockwise", or "auto"
+    fadeIn: resolveNumber(pathConfig.fadeIn, globalConfig.fadeIn ?? 0), // fadeIn duration in ms
+    fadeOut: resolveNumber(pathConfig.fadeOut, globalConfig.fadeOut ?? 0), // fadeOut duration in ms
+    // Line width (stroke width) in px, supports decimals
+    // Prioritize path-specific lineWidth, then global, then default to 1
+    // Support both number and string inputs, convert to number
+    lineWidth: (() => {
+      let pathValue = pathConfig.lineWidth;
+      let globalValue = globalConfig.lineWidth;
+
+      // Convert to number if it's a string
+      if (typeof pathValue === "string") {
+        pathValue = parseFloat(pathValue);
+      }
+      if (typeof globalValue === "string") {
+        globalValue = parseFloat(globalValue);
+      }
+
+      // Check if pathValue is explicitly set and is a valid number
+      // Must be > 0 to be visible
+      if (
+        typeof pathValue === "number" &&
+        !Number.isNaN(pathValue) &&
+        pathValue > 0
+      ) {
+        return pathValue;
+      }
+      // Fall back to global value if it's a valid number
+      if (
+        typeof globalValue === "number" &&
+        !Number.isNaN(globalValue) &&
+        globalValue > 0
+      ) {
+        return globalValue;
+      }
+      // Default to 1 if neither is set
+      return 1;
+    })(),
+    coverage: resolveNumber(pathConfig.coverage, globalConfig.coverage ?? 360), // Coverage in radians (360 = full round)
+    // For line paths, only use length if explicitly set on the path itself
+    // Don't inherit global length for line paths to avoid conflicts with coverage
+    // Check if pathConfig.length is explicitly set (not undefined) and is a valid number > 0
+    lineLength:
+      pathConfig.length !== undefined &&
+      typeof pathConfig.length === "number" &&
+      pathConfig.length > 0
+        ? pathConfig.length
+        : undefined, // Line length in px (separate from spark length), defaults to betSpot side length if undefined
+    startPoint: resolveNumber(
+      pathConfig.startPoint,
+      globalConfig.startPoint ?? 0
+    ), // Start point in radians (360 = full round)
   };
+
+  // Use isLinePath from parameter, fallback to checking type
+  const isLinePathFlag =
+    isLinePath !== undefined ? isLinePath : pathConfig.type === "line";
 
   const delaySec = delayToSeconds(merged.delay);
   const adjustedTime = timeNowSec - delaySec;
   if (adjustedTime < 0) return;
 
+  // Calculate fadeIn and fadeOut alpha
+  let fadeInAlpha = 1.0;
+  let fadeOutAlpha = 1.0;
+
+  // FadeIn: fade from 0 to 1 over fadeIn duration
+  // If fadeIn is 200ms, fade from 0 to 1 in 200ms from the start
+  if (merged.fadeIn > 0) {
+    const fadeInSec = merged.fadeIn / 1000.0; // Convert ms to seconds
+    const fadeInProgress = Math.min(1.0, Math.max(0.0, elapsed / fadeInSec));
+    fadeInAlpha = fadeInProgress;
+  }
+
+  // FadeOut: fade from 1 to 0 over fadeOut duration
+  // If fadeOut is 200ms, fade from 1 to 0 in the last 200ms
+  if (merged.fadeOut > 0) {
+    const fadeOutSec = merged.fadeOut / 1000.0; // Convert ms to seconds
+    const timeUntilEnd = durationSec - elapsed;
+    const fadeOutProgress = Math.min(
+      1.0,
+      Math.max(0.0, timeUntilEnd / fadeOutSec)
+    );
+    fadeOutAlpha = fadeOutProgress;
+  }
+
+  // For line paths, use simpler phase calculation
+  // Line paths don't use segmentParam the same way as spark/circle
   const totalArcPxVal = Math.max(totalArcPx || 1.0, 0.0001);
-  const segmentParam = Math.min(merged.length / totalArcPxVal, 1.0);
-  const totalSpan = 1.0 + segmentParam + merged.overshoot;
+  const segmentParam = isLinePathFlag
+    ? 0 // Line paths don't use segmentParam
+    : Math.min(merged.length / totalArcPxVal, 1.0);
+  const totalSpan = isLinePathFlag
+    ? 1.0 // Line paths just go from 0 to 1
+    : 1.0 + segmentParam + merged.overshoot;
   const phase = easedNormalizedTime * totalSpan;
 
   const maxPhase = totalSpan;
-  if (phase >= maxPhase + merged.fadeWindow - 0.0001) return;
+
+  // For line paths, don't apply the early return based on fadeWindow
+  // Let the line animate for the full duration
+  if (!isLinePathFlag && phase >= maxPhase + merged.fadeWindow - 0.0001) return;
 
   const segHead = Math.min(Math.max(phase, 0), totalSpan);
   const segTail = Math.min(Math.max(phase - segmentParam, 0), 1.0);
 
-  if (segTail >= 1.0 - 0.0001) {
+  if (!isLinePathFlag && segTail >= 1.0 - 0.0001) {
     const pastEnd = phase - 1.0;
     if (pastEnd >= merged.fadeWindow) return;
   }
 
   // Calculate alpha fade
   let alpha = 1.0;
-  if (phase > maxPhase) {
-    const fadeMul =
-      1.0 -
-      Math.min((phase - maxPhase) / Math.max(merged.fadeWindow, 0.0001), 1.0);
-    alpha *= fadeMul;
-  } else if (segTail >= 1.0 - 0.0001) {
-    const pastEnd = Math.max(0.0, phase - 1.0);
-    const fadeOutPhase = Math.min(
-      pastEnd / Math.max(merged.fadeWindow, 0.0001),
-      1.0
-    );
-    alpha *= 1.0 - fadeOutPhase;
+
+  // Apply existing fadeWindow-based fade (for end of animation)
+  // Only apply if fadeOut is not explicitly set, to avoid conflicts
+  // Skip fadeWindow for line paths - they use fadeOut instead
+  if (merged.fadeOut <= 0 && !isLinePathFlag) {
+    if (phase > maxPhase) {
+      const fadeMul =
+        1.0 -
+        Math.min((phase - maxPhase) / Math.max(merged.fadeWindow, 0.0001), 1.0);
+      alpha *= fadeMul;
+    } else if (segTail >= 1.0 - 0.0001) {
+      const pastEnd = Math.max(0.0, phase - 1.0);
+      const fadeOutPhase = Math.min(
+        pastEnd / Math.max(merged.fadeWindow, 0.0001),
+        1.0
+      );
+      alpha *= 1.0 - fadeOutPhase;
+    }
   }
 
-  if (alpha <= 0) return;
+  // Apply fadeIn and fadeOut
+  alpha *= fadeInAlpha * fadeOutAlpha;
+
+  if (alpha <= 0) {
+    return;
+  }
 
   const [centerX, centerY] = anchorCenter;
 
@@ -713,13 +1354,80 @@ export function drawPath2D({
   const SAMPLE_COUNT = 50;
   const points = [];
 
-  if (isCirclePath) {
+  // Handle line path separately - draw as single continuous line
+  if (isLinePathFlag) {
+    // Line path: travel around BetSpot border as single continuous line
+    const halfWidth =
+      metrics?.halfWidth ??
+      (anchorEl?.getBoundingClientRect
+        ? anchorEl.getBoundingClientRect().width / 2
+        : 50);
+    const halfHeight =
+      metrics?.halfHeight ??
+      (anchorEl?.getBoundingClientRect
+        ? anchorEl.getBoundingClientRect().height / 2
+        : 50);
+
+    const baseStartPointRad = merged.startPoint; // Base start point in radians (360 = full round)
+    const coverageRad = merged.coverage; // Coverage in radians (360 = full round)
+    const length = merged.lineLength; // Line length in px (separate from spark length)
+    const direction =
+      merged.direction === "anticlockwise" ? "anticlockwise" : "clockwise";
+
+    // Animate the line to travel around the border
+    // The line should:
+    // 1. Start at baseStartPointRad
+    // 2. Start with length 0
+    // 3. Grow in the direction of travel
+    // 4. Grow to full length based on easedNormalizedTime
+
+    // Direction: controls the visual direction of the line animation
+    // getLinePathPositionByDistance always uses edgeOrder [0,1,2,3] for consistent distance mapping
+    // The direction only affects how we traverse along each edge (from 'from' to 'to' or 'to' to 'from')
+    // directionSign controls the direction of line growth and movement along the perimeter
+    // For anticlockwise: directionSign = -1 to decrease distance (go backwards along perimeter)
+    // For clockwise: directionSign = 1 to increase distance (go forward along perimeter)
+    const directionSign = direction === "anticlockwise" ? -1 : 1;
+
+    // The start point stays fixed
+    const animatedStartPointRad = baseStartPointRad;
+
+    // The line length should grow from 0 to target length based on easedNormalizedTime
+    // Pass easedNormalizedTime to drawLinePath so it can grow the line
+    drawLinePath(
+      ctx,
+      centerX,
+      centerY,
+      halfWidth,
+      halfHeight,
+      animatedStartPointRad,
+      direction,
+      coverageRad,
+      length,
+      merged.lineWidth,
+      merged.sparkColor,
+      merged.glowRadius,
+      merged.glowColor,
+      alpha,
+      easedNormalizedTime, // Pass easedNormalizedTime for line growth
+      directionSign // Pass directionSign for correct growth direction
+    );
+
+    // Return early - line is drawn separately
+    return;
+  } else if (isCirclePath) {
     const circleRadius = pathConfig.circleRadius ?? 30;
     const a = merged.ellipse.a;
     const b = merged.ellipse.b;
     const rotAngle = metrics?.rotAngle ?? (135 * Math.PI) / 180;
 
-    for (let i = 0; i <= SAMPLE_COUNT; i++) {
+    // Fade out the last 40% of points to make the end subtle and eliminate the dot
+    const FADE_OUT_RATIO = 0.4; // Last 40% of the path
+    const fadeStartIndex = Math.floor(SAMPLE_COUNT * (1 - FADE_OUT_RATIO));
+    // Skip the last several points entirely to ensure no visible dot
+    const SKIP_LAST_POINTS = 12;
+
+    for (let i = 0; i <= SAMPLE_COUNT - SKIP_LAST_POINTS; i++) {
       const t = segTail + (segHead - segTail) * (i / SAMPLE_COUNT);
       const tClamped = Math.max(0, Math.min(1, t));
 
@@ -740,9 +1448,34 @@ export function drawPath2D({
       );
 
       const along01 = i / SAMPLE_COUNT;
-      const radius =
+      let radius =
         merged.tailRadius + (merged.headRadius - merged.tailRadius) * along01;
-      points.push({ x, y, radius, along01 });
+
+      // Apply aggressive fade-out to the last portion to eliminate the dot
+      let pointAlpha = alpha;
+      let shouldAdd = true;
+
+      if (i >= fadeStartIndex) {
+        const fadeProgress =
+          (i - fadeStartIndex) /
+          (SAMPLE_COUNT - SKIP_LAST_POINTS - fadeStartIndex);
+        // Extremely aggressive fade using very steep ease-out curve (power of 5 for extremely fast fade)
+        const fadeAlpha = Math.max(0, 1 - Math.pow(fadeProgress, 5));
+        pointAlpha = alpha * fadeAlpha;
+        // Aggressively reduce radius to near zero for the last points
+        // Reduce radius more aggressively to eliminate any visible dot
+        radius = radius * Math.max(0, 0.02 + 0.98 * fadeAlpha);
+
+        // Only add point in fade region if it has meaningful visibility
+        // Use very strict threshold to ensure no visible dot remains
+        // Require both high alpha and reasonable radius to prevent any dot from showing
+        shouldAdd = pointAlpha > 0.1 && radius > 0.5;
+      }
+
+      // Add point if it should be visible
+      if (shouldAdd) {
+        points.push({ x, y, radius, along01, alpha: pointAlpha });
+      }
     }
   } else {
     const startDir = getAngleForVertex(pathConfig.startVertex);
@@ -770,7 +1503,9 @@ export function drawPath2D({
     // Use thetaEndLocal from metrics if available, otherwise calculate it
     // For the initial path (before return journey), we need the absolute value to calculate the ratio
     // but we should use the signed value for the actual path
-    const initialPathEndTheta = Math.abs(metrics?.thetaEndLocal ?? thetaEndLocal);
+    const initialPathEndTheta = Math.abs(
+      metrics?.thetaEndLocal ?? thetaEndLocal
+    );
 
     for (let i = 0; i <= SAMPLE_COUNT; i++) {
       const t = segTail + (segHead - segTail) * (i / SAMPLE_COUNT);
@@ -820,9 +1555,11 @@ export function drawPath2D({
     }
   }
 
-  // Draw points with glow
+  // Draw points with glow (for spark and circle)
   ctx.save();
   for (const point of points) {
+    // Use point-specific alpha if available (for circle fade-out), otherwise use global alpha
+    const pointAlpha = point.alpha !== undefined ? point.alpha : alpha;
     drawGlowPoint(
       ctx,
       point.x,
@@ -831,7 +1568,7 @@ export function drawPath2D({
       merged.glowRadius,
       merged.sparkColor,
       merged.glowColor,
-      alpha
+      pointAlpha
     );
   }
   ctx.restore();

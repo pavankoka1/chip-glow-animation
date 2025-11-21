@@ -16,10 +16,10 @@ export default function Canvas2DPage() {
   const [config, setConfig] = useState({
     animationTimeMs: 1200,
     // animationTimeMs: 10000,
-    glowRadius: 4,
+    glowRadius: 2,
     ellipse: { b: 20, a: 76 },
     headRadius: 3,
-    tailRadius: 0.2,
+    tailRadius: 0.5,
     length: 100,
     sparkColor: "#ffff00",
     glowColor: "#fff391",
@@ -52,6 +52,7 @@ export default function Canvas2DPage() {
         circleRadius: 25,
         delay: 1150,
         enabled: true,
+        fadeOut: 400,
       },
       {
         id: 4,
@@ -62,6 +63,35 @@ export default function Canvas2DPage() {
         delay: 1250,
         direction: "anticlockwise", // Go anticlockwise
         enabled: true,
+        fadeOut: 400,
+      },
+      {
+        id: 5,
+        type: "line",
+        animationTimeMs: 1000,
+        startPoint: 315, // Start point in radians (360 = full round, 0=top, 90=right, 180=bottom, 270=left)
+        lineWidth: 2, // Line stroke width in px (supports decimals)
+        coverage: 720, // Coverage in radians (360 = full round)
+        glowRadius: 0, // Disable glow for thinner line appearance
+        delay: 1000,
+        direction: "clockwise", // clockwise or anticlockwise
+        sparkColor: "#ffff00", // Line color (defaults to sparkColor)
+        enabled: true,
+        fadeOut: 400,
+      },
+      {
+        id: 6,
+        type: "line",
+        animationTimeMs: 1000,
+        startPoint: 135, // Start point in radians (360 = full round, 0=top, 90=right, 180=bottom, 270=left)
+        lineWidth: 2, // Line stroke width in px (supports decimals)
+        coverage: 720, // Coverage in radians (360 = full round)
+        glowRadius: 0, // Disable glow for thinner line appearance
+        delay: 1000,
+        direction: "clockwise", // clockwise or anticlockwise
+        sparkColor: "#ffff00", // Line color (defaults to sparkColor)
+        enabled: true,
+        fadeOut: 400,
       },
     ],
   });
