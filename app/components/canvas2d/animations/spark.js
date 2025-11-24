@@ -242,24 +242,22 @@ export function renderSpark(
   segHead,
   totalSpan,
   alpha,
-  anchorEl
+  rect
 ) {
-  const merged = {
-    headRadius: pathConfig.headRadius ?? globalConfig.headRadius ?? 10,
-    tailRadius: pathConfig.tailRadius ?? globalConfig.tailRadius ?? 2,
-    sparkColor: pathConfig.sparkColor ?? globalConfig.sparkColor ?? "#ffff00",
-    glowColor: pathConfig.glowColor ?? globalConfig.glowColor ?? "#fff391",
-    glowRadius: pathConfig.glowRadius ?? globalConfig.glowRadius ?? 30,
-  };
+  const headRadius = pathConfig.headRadius ?? globalConfig.headRadius ?? 10;
+  const tailRadius = pathConfig.tailRadius ?? globalConfig.tailRadius ?? 2;
+  const sparkColor = pathConfig.sparkColor ?? globalConfig.sparkColor ?? "#ffff00";
+  const glowColor = pathConfig.glowColor ?? globalConfig.glowColor ?? "#fff391";
+  const glowRadius = pathConfig.glowRadius ?? globalConfig.glowRadius ?? 30;
 
-  const [centerX, centerY] = [metrics.centerX, metrics.centerY];
+  const centerX = metrics.centerX;
+  const centerY = metrics.centerY;
   const a = metrics.a;
   const b = metrics.b;
   const rotAngle = metrics.rotAngle;
   const thetaStartLocal = 0.0;
   const actualThetaEnd = metrics.actualThetaEnd ?? metrics.thetaEndLocal;
 
-  const rect = anchorEl?.getBoundingClientRect ? anchorEl.getBoundingClientRect() : null;
   const halfWidth = rect ? rect.width / 2 : 50;
   const halfHeight = rect ? rect.height / 2 : 50;
 
@@ -301,27 +299,21 @@ export function renderSpark(
     }
 
     const along01 = i / SAMPLE_COUNT;
-    const radius = merged.tailRadius + (merged.headRadius - merged.tailRadius) * along01;
-    points.push({ x, y, radius, along01 });
+    const radius = tailRadius + (headRadius - tailRadius) * along01;
+    points.push({ x, y, radius });
   }
 
   ctx.save();
   for (const point of points) {
-    const pointAlpha = point.alpha !== undefined ? point.alpha : alpha;
-    const glowRadius =
-      point.glowRadiusMultiplier !== undefined
-        ? merged.glowRadius * point.glowRadiusMultiplier
-        : merged.glowRadius;
-
     drawGlowPoint(
       ctx,
       point.x,
       point.y,
       point.radius,
       glowRadius,
-      merged.sparkColor,
-      merged.glowColor,
-      pointAlpha
+      sparkColor,
+      glowColor,
+      alpha
     );
   }
   ctx.restore();

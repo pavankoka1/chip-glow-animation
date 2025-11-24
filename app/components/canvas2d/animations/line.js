@@ -307,53 +307,40 @@ export function renderLine(
   easedNormalizedTime,
   alpha
 ) {
-  const merged = {
-    sparkColor: pathConfig.sparkColor ?? globalConfig.sparkColor ?? "#ffff00",
-    glowColor: pathConfig.glowColor ?? globalConfig.glowColor ?? "#fff391",
-    glowRadius: pathConfig.glowRadius ?? globalConfig.glowRadius ?? 30,
-    lineWidth: (() => {
-      let pathValue = pathConfig.lineWidth;
-      let globalValue = globalConfig.lineWidth;
+  const sparkColor = pathConfig.sparkColor ?? globalConfig.sparkColor ?? "#ffff00";
+  const glowColor = pathConfig.glowColor ?? globalConfig.glowColor ?? "#fff391";
+  const glowRadius = pathConfig.glowRadius ?? globalConfig.glowRadius ?? 30;
 
-      if (typeof pathValue === "string") {
-        pathValue = Number.parseFloat(pathValue);
-      }
-      if (typeof globalValue === "string") {
-        globalValue = Number.parseFloat(globalValue);
-      }
+  let pathValue = pathConfig.lineWidth;
+  let globalValue = globalConfig.lineWidth;
+  if (typeof pathValue === "string") {
+    pathValue = Number.parseFloat(pathValue);
+  }
+  if (typeof globalValue === "string") {
+    globalValue = Number.parseFloat(globalValue);
+  }
+  const lineWidth =
+    (typeof pathValue === "number" && !Number.isNaN(pathValue) && pathValue > 0)
+      ? pathValue
+      : (typeof globalValue === "number" && !Number.isNaN(globalValue) && globalValue > 0)
+      ? globalValue
+      : 1;
 
-      if (
-        typeof pathValue === "number" &&
-        !Number.isNaN(pathValue) &&
-        pathValue > 0
-      ) {
-        return pathValue;
-      }
-      if (
-        typeof globalValue === "number" &&
-        !Number.isNaN(globalValue) &&
-        globalValue > 0
-      ) {
-        return globalValue;
-      }
-      return 1;
-    })(),
-    iterations: pathConfig.iterations ?? globalConfig.iterations ?? 1,
-    lineLength:
-      pathConfig.length !== undefined &&
-      typeof pathConfig.length === "number" &&
-      pathConfig.length > 0
-        ? pathConfig.length
-        : undefined,
-    startPoint: pathConfig.startPoint ?? globalConfig.startPoint ?? 0,
-    direction:
-      pathConfig.direction === "anticlockwise" ? "anticlockwise" : "clockwise",
-  };
+  const iterations = pathConfig.iterations ?? globalConfig.iterations ?? 1;
+  const lineLength =
+    pathConfig.length !== undefined &&
+    typeof pathConfig.length === "number" &&
+    pathConfig.length > 0
+      ? pathConfig.length
+      : undefined;
+  const startPoint = pathConfig.startPoint ?? globalConfig.startPoint ?? 0;
+  const direction = pathConfig.direction === "anticlockwise" ? "anticlockwise" : "clockwise";
 
-  const [centerX, centerY] = [metrics.centerX, metrics.centerY];
+  const centerX = metrics.centerX;
+  const centerY = metrics.centerY;
   const halfWidth = metrics.halfWidth ?? 50;
   const halfHeight = metrics.halfHeight ?? 50;
-  const directionSign = merged.direction === "anticlockwise" ? -1 : 1;
+  const directionSign = direction === "anticlockwise" ? -1 : 1;
 
   drawLinePath(
     ctx,
@@ -361,14 +348,14 @@ export function renderLine(
     centerY,
     halfWidth,
     halfHeight,
-    merged.startPoint,
-    merged.direction,
-    merged.iterations,
-    merged.lineLength,
-    merged.lineWidth,
-    merged.sparkColor,
-    merged.glowRadius,
-    merged.glowColor,
+    startPoint,
+    direction,
+    iterations,
+    lineLength,
+    lineWidth,
+    sparkColor,
+    glowRadius,
+    glowColor,
     alpha,
     easedNormalizedTime,
     directionSign

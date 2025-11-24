@@ -7,6 +7,7 @@ import * as circleAnimation from "./canvas2d/animations/circle";
 import * as lineAnimation from "./canvas2d/animations/line";
 import * as sparkAnimation from "./canvas2d/animations/spark";
 import { EPSILON, MAX_DT_SEC } from "./canvas2d/constants";
+import { CPUMonitor, drawCPUUsage } from "./canvas2d/cpuMonitor";
 import {
   applyEasingCircle,
   applyEasingLine,
@@ -27,6 +28,7 @@ export default function GlowAnimation2D({
   const lastTsRef = useRef(null);
   const accumulatedSecRef = useRef(0);
   const pathMetricsRef = useRef(new Map());
+  const cpuMonitorRef = useRef(new CPUMonitor(60));
   useFps({ sampleSize: 90 });
 
   useEffect(() => {
@@ -47,6 +49,7 @@ export default function GlowAnimation2D({
     window.addEventListener("resize", resizeCanvas);
 
     const animate = (ts) => {
+      cpuMonitorRef.current.startFrame();
       if (!isPlaying) {
         animationIdRef.current = null;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -305,8 +308,14 @@ export default function GlowAnimation2D({
           anchorEl,
           elapsed,
           durationSec,
+          rect,
         });
       }
+
+      const frameTime = cpuMonitorRef.current.endFrame();
+      const cpuUsage = cpuMonitorRef.current.getCPUUsage();
+
+      drawCPUUsage(ctx, cpuUsage, frameTime, canvas.width, 0);
 
       animationIdRef.current = requestAnimationFrame(animate);
     };
