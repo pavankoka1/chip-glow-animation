@@ -47,7 +47,7 @@ export function drawCPUUsage(ctx, cpuUsage, frameTime, x, y) {
 
   ctx.save();
   ctx.font = `${fontSize}px monospace`;
-  ctx.textAlign = "center";
+  ctx.textAlign = "right";
   ctx.textBaseline = "top";
 
   const cpuText = `CPU: ${cpuUsage.toFixed(1)}%`;
