@@ -47,24 +47,24 @@ export default function Canvas2DPage() {
       {
         id: 3,
         type: "circle",
-        animationTimeMs: 9800,
+        animationTimeMs: 800,
         startVertex: "BR",
         circleRadius: 25,
         delay: 1150,
         enabled: true,
-        // fadeOut: 400,
+        fadeOut: 400,
       },
-      // {
-      //   id: 4,
-      //   type: "circle",
-      //   animationTimeMs: 800,
-      //   startVertex: "BL",
-      //   circleRadius: 25,
-      //   delay: 1250,
-      //   direction: "anticlockwise", // Go anticlockwise
-      //   enabled: true,
-      //   fadeOut: 400,
-      // },
+      {
+        id: 4,
+        type: "circle",
+        animationTimeMs: 800,
+        startVertex: "BL",
+        circleRadius: 25,
+        delay: 1250,
+        direction: "anticlockwise", // Go anticlockwise
+        enabled: true,
+        fadeOut: 400,
+      },
       {
         id: 5,
         type: "line",

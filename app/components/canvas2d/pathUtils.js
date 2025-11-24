@@ -1371,7 +1371,7 @@ export function drawPath2D({
   if (!isLinePathFlag && phase >= maxPhase + merged.fadeWindow - 0.0001) return;
 
   const segHead = Math.min(Math.max(phase, 0), totalSpan);
-  const segTail = Math.min(Math.max(phase - segmentParam, 0), 1.0);
+  const segTail = Math.min(Math.max(phase - segmentParam, 0), totalSpan);
 
   if (!isLinePathFlag && segTail >= 1.0 - 0.0001) {
     const pastEnd = phase - 1.0;
@@ -1483,7 +1483,7 @@ export function drawPath2D({
 
     for (let i = 0; i <= SAMPLE_COUNT; i++) {
       const t = segTail + (segHead - segTail) * (i / SAMPLE_COUNT);
-      const tClamped = Math.max(0, Math.min(1, t));
+      const tClamped = Math.max(0, Math.min(totalSpan, t));
 
       const [x, y] = getCirclePathPosition(
         tClamped,
