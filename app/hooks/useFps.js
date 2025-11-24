@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export default function useFps({ sampleSize = 60, continuous = true } = {}) {
+export default function useFps({ sampleSize = 60, continuous = false } = {}) {
   const [fps, setFps] = useState(() => {
     if (typeof window !== "undefined") {
       const stored = sessionStorage.getItem("fps");

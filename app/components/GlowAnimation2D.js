@@ -30,12 +30,27 @@ export default function GlowAnimation2D({
   const accumulatedSecRef = useRef(0);
   const pathMetricsRef = useRef(new Map());
   const cpuMonitorRef = useRef(new CPUMonitor(60));
-  const fps = useFps({ sampleSize: 60, continuous: true });
+  const fps = useFps({ sampleSize: 60, continuous: false });
   const fpsRef = useRef(fps);
+  const anchorRectRef = useRef(null);
+  const anchorCenterRef = useRef([0, 0]);
 
   useEffect(() => {
     fpsRef.current = fps;
   }, [fps]);
+
+  useEffect(() => {
+    if (anchorEl?.getBoundingClientRect) {
+      anchorRectRef.current = anchorEl.getBoundingClientRect();
+      anchorCenterRef.current = [
+        anchorRectRef.current.left + anchorRectRef.current.width / 2,
+        anchorRectRef.current.top + anchorRectRef.current.height / 2,
+      ];
+    } else {
+      anchorRectRef.current = null;
+      anchorCenterRef.current = [0, 0];
+    }
+  }, [anchorEl]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -63,37 +78,11 @@ export default function GlowAnimation2D({
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
 
-    const animate = (ts) => {
-      cpuMonitorRef.current.startFrame();
-
-      if (!isPlaying) {
-        animationIdRef.current = null;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        return;
-      }
-
-      if (lastTsRef.current == null) lastTsRef.current = ts;
-      const dtSec = Math.min(MAX_DT_SEC, (ts - lastTsRef.current) / 1000);
-      lastTsRef.current = ts;
-      accumulatedSecRef.current += dtSec;
-
-      const currentFps = fpsRef.current;
-      const frameBudget = 1000 / Math.max(currentFps, 1);
-      cpuMonitorRef.current.setFrameBudget(frameBudget);
-
-      const currentTimeSec = accumulatedSecRef.current;
-
-      let centerX = canvas.width / 2;
-      let centerY = canvas.height / 2;
-      let rect = null;
-      if (anchorEl?.getBoundingClientRect) {
-        rect = anchorEl.getBoundingClientRect();
-        centerX = rect.left + rect.width / 2;
-        centerY = rect.top + rect.height / 2;
-      }
-
+    const precalculatePathMetrics = () => {
       const cfg = { ...DEFAULT_CONFIG, ...config };
       const activePaths = (cfg.paths || []).filter((p) => p.enabled !== false);
+      const rect = anchorRectRef.current;
+      const [centerX, centerY] = anchorCenterRef.current;
 
       for (const p of activePaths) {
         const isCirclePath =
@@ -202,6 +191,34 @@ export default function GlowAnimation2D({
           }
         }
       }
+    };
+
+    precalculatePathMetrics();
+
+    const animate = (ts) => {
+      cpuMonitorRef.current.startFrame();
+
+      if (!isPlaying) {
+        animationIdRef.current = null;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+
+      if (lastTsRef.current == null) lastTsRef.current = ts;
+      const dtSec = Math.min(MAX_DT_SEC, (ts - lastTsRef.current) / 1000);
+      lastTsRef.current = ts;
+      accumulatedSecRef.current += dtSec;
+
+      const currentFps = fpsRef.current;
+      const frameBudget = 1000 / Math.max(currentFps, 1);
+      cpuMonitorRef.current.setFrameBudget(frameBudget);
+
+      const currentTimeSec = accumulatedSecRef.current;
+      const rect = anchorRectRef.current;
+      const [centerX, centerY] = anchorCenterRef.current;
+
+      const cfg = { ...DEFAULT_CONFIG, ...config };
+      const activePaths = (cfg.paths || []).filter((p) => p.enabled !== false);
 
       let allComplete = activePaths.length > 0;
       const animationTimeMsGlobal =
@@ -289,28 +306,17 @@ export default function GlowAnimation2D({
         const pathLength = metrics?.pathLength || 1.0;
 
         const pathWithAutoEllipse = { ...path };
-        if (isCirclePath) {
-          const circleRadius = path.circleRadius ?? 30;
-          const autoA = calculateAutoA(rect);
-          const bVal = circleRadius;
+        if (isCirclePath && metrics) {
           pathWithAutoEllipse.ellipse = {
             ...(path.ellipse || {}),
-            a: autoA,
-            b: bVal,
+            a: metrics.a,
+            b: metrics.b,
           };
-        } else if (!isLinePath) {
-          const ellipseCfg = path.ellipse || cfg.ellipse;
-          let autoA = ellipseCfg?.a;
-          let bVal = ellipseCfg?.b ?? 0.0;
-          if (rect && autoA === undefined) {
-            autoA = calculateAutoA(rect, 10);
-          } else if (autoA === undefined) {
-            autoA = 150;
-          }
+        } else if (!isLinePath && metrics) {
           pathWithAutoEllipse.ellipse = {
             ...(path.ellipse || {}),
-            a: autoA,
-            b: bVal,
+            a: metrics.a,
+            b: metrics.b,
           };
         }
 
