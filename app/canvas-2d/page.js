@@ -16,13 +16,13 @@ export default function Canvas2DPage() {
   const [config, setConfig] = useState({
     animationTimeMs: 1200,
     // animationTimeMs: 10000,
-    glowRadius: 2,
+    glowRadius: 10,
     ellipse: { b: 20, a: 76 },
     headRadius: 3,
     tailRadius: 0.5,
     length: 100,
-    sparkColor: "#ffff00",
-    glowColor: "#fff391",
+    sparkColor: "#f1eb9d",
+    glowColor: "#fdcb3d",
     paths: [
       {
         id: 1,
@@ -47,35 +47,35 @@ export default function Canvas2DPage() {
       {
         id: 3,
         type: "circle",
-        animationTimeMs: 800,
+        animationTimeMs: 9800,
         startVertex: "BR",
         circleRadius: 25,
         delay: 1150,
         enabled: true,
-        fadeOut: 400,
+        // fadeOut: 400,
       },
-      {
-        id: 4,
-        type: "circle",
-        animationTimeMs: 800,
-        startVertex: "BL",
-        circleRadius: 25,
-        delay: 1250,
-        direction: "anticlockwise", // Go anticlockwise
-        enabled: true,
-        fadeOut: 400,
-      },
+      // {
+      //   id: 4,
+      //   type: "circle",
+      //   animationTimeMs: 800,
+      //   startVertex: "BL",
+      //   circleRadius: 25,
+      //   delay: 1250,
+      //   direction: "anticlockwise", // Go anticlockwise
+      //   enabled: true,
+      //   fadeOut: 400,
+      // },
       {
         id: 5,
         type: "line",
         animationTimeMs: 1000,
         startPoint: 315, // Start point in radians (360 = full round, 0=top, 90=right, 180=bottom, 270=left)
-        lineWidth: 2, // Line stroke width in px (supports decimals)
-        coverage: 720, // Coverage in radians (360 = full round)
+        lineWidth: 4, // Line stroke width in px (supports decimals)
+        iterations: 1, // Number of rounds around BetSpot (1 = 2 rounds, 2 = 2 rounds, 5 = 5 rounds)
         glowRadius: 0, // Disable glow for thinner line appearance
         delay: 1000,
         direction: "clockwise", // clockwise or anticlockwise
-        sparkColor: "#ffff00", // Line color (defaults to sparkColor)
+        sparkColor: "#fdcb3d", // Line color (defaults to sparkColor)
         enabled: true,
         fadeOut: 400,
       },
@@ -84,12 +84,12 @@ export default function Canvas2DPage() {
         type: "line",
         animationTimeMs: 1000,
         startPoint: 135, // Start point in radians (360 = full round, 0=top, 90=right, 180=bottom, 270=left)
-        lineWidth: 2, // Line stroke width in px (supports decimals)
-        coverage: 720, // Coverage in radians (360 = full round)
+        lineWidth: 4, // Line stroke width in px (supports decimals)
+        iterations: 1, // Number of rounds around BetSpot (1 = 2 rounds, 2 = 2 rounds, 5 = 5 rounds)
         glowRadius: 0, // Disable glow for thinner line appearance
         delay: 1000,
         direction: "clockwise", // clockwise or anticlockwise
-        sparkColor: "#ffff00", // Line color (defaults to sparkColor)
+        sparkColor: "#fdcb3d", // Line color (defaults to sparkColor)
         enabled: true,
         fadeOut: 400,
       },

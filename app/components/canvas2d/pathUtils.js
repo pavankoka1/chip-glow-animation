@@ -768,7 +768,7 @@ function getCirclePathPosition(
 
 // Draw a continuous line along the border with smooth corners
 // startPointRad: starting position in radians (360 = full round)
-// coverageRad: coverage in radians (360 = full round)
+// iterations: number of rounds around BetSpot (1 = 2 rounds, 5 = 5 rounds, etc.)
 // length: line length in px, defaults to betSpot side length
 // easedNormalizedTime: 0 to 1, controls line growth from 0 to full length
 // directionSign: 1 for anticlockwise, -1 for clockwise (inverted to fix direction issue)
@@ -780,7 +780,7 @@ function drawLinePath(
   halfHeight,
   startPointRad, // Starting position in radians (360 = full round)
   direction,
-  coverageRad, // Coverage in radians (360 = full round)
+  iterations, // Number of rounds (1 = 2 rounds, 5 = 5 rounds, etc.)
   length, // Line length in px
   lineWidth,
   color,
@@ -799,19 +799,9 @@ function drawLinePath(
   const targetLineLength =
     length !== undefined && length > 0 ? length : defaultLength;
 
-  // Convert coverage from radians (360 = full round) to distance
-  let coverageFraction;
-  if (Math.abs(coverageRad) < 0.001) {
-    coverageFraction = 0.0;
-  } else {
-    const coverageMod = Math.abs(coverageRad % 360);
-    if (coverageMod < 0.001 || Math.abs(coverageMod - 360) < 0.001) {
-      coverageFraction = 1.0;
-    } else {
-      coverageFraction = (((coverageRad % 360) + 360) % 360) / 360.0;
-    }
-  }
-  const coverageDistance = coverageFraction * perimeter;
+  // Convert iterations to total travel distance
+  // iterations = 1 means 2 rounds, iterations = 5 means 5 rounds, etc.
+  const totalTravelDistance = iterations * perimeter;
 
   // Two-phase animation:
   // Phase 1: Line grows from 0 to targetLineLength (caterpillar growth)
@@ -843,12 +833,12 @@ function drawLinePath(
     const movementProgress =
       (easedNormalizedTime - GROWTH_PHASE_RATIO) / (1 - GROWTH_PHASE_RATIO);
 
-    // Start point moves along the perimeter based on coverage
+    // Start point moves along the perimeter based on iterations
     const startPointFraction = (((startPointRad % 360) + 360) % 360) / 360.0;
     const baseStartDistance = startPointFraction * perimeter;
 
-    // Move the line along the perimeter by coverageDistance * movementProgress
-    const travelDistance = coverageDistance * movementProgress;
+    // Move the line along the perimeter by totalTravelDistance * movementProgress
+    const travelDistance = totalTravelDistance * movementProgress;
     lineStartDistance = baseStartDistance + travelDistance * directionSign;
     lineEndDistance = lineStartDistance + actualLineLength * directionSign;
   }
@@ -875,12 +865,9 @@ function drawLinePath(
       ? lineEndDistance > perimeter && actualEndDist < actualStartDist
       : lineEndDistance < 0 && actualEndDist > actualStartDist;
 
-  // Special case: if coverage is exactly 360 and the line is actually drawing the full perimeter, we need to wrap
-  const isFullRoundCoverage =
-    Math.abs(coverageRad % 360) < 0.001 ||
-    Math.abs(Math.abs(coverageRad) - 360) < 0.001;
+  // Special case: if line length equals perimeter and we're doing multiple rounds, we need to wrap
   const shouldForceWrapForFullRound =
-    isFullRoundCoverage && Math.abs(actualLineLength - perimeter) < 0.001;
+    Math.abs(actualLineLength - perimeter) < 0.001 && iterations >= 1;
 
   const finalWrapped = wrapped || shouldForceWrapForFullRound;
 
@@ -1109,50 +1096,119 @@ function drawGlowPoint(
   ctx.arc(x, y, radius, 0, 2 * Math.PI);
   ctx.fill();
 
-  // If glowRadius > 0, draw the aura/glow effect around the object
-  // Create a beautiful, ethereal aura that emanates from the spark like natural light
-  // The aura should feel special - smooth, radiant, with natural light falloff
+  // If glowRadius > 0, draw the subtle sparkles aura effect around the object
+  // Create a subtle, stable aura with gentle sparkles that don't change much
   if (glowRadius > 0) {
     const totalRadius = radius + glowRadius;
-    const coreRatio = radius / totalRadius;
+    const highOpacityZone = 0.2; // First 20% of glow radius
+    const maxAuraAlpha = 0.3 * alpha; // Reduced to 30% for subtlety
 
-    // Create radial gradient starting from center for true aura effect
-    // This makes the glow feel like light radiating from the spark itself
+    // First, draw the base gradient aura for subtle background glow
     const gradient = ctx.createRadialGradient(
       x,
       y,
-      0, // Start from absolute center for natural light emanation
+      radius, // Start from the edge of the core spark
       x,
       y,
       totalRadius // End at the aura edge
     );
 
-    // Create a special, ethereal aura with natural light falloff
-    // Use exponential decay for realistic light behavior - feels like real light emanating
-    const maxAuraAlpha = 0.95 * alpha; // Strong, vibrant aura
-
-    // Generate many color stops for ultra-smooth, ethereal gradient
-    // More stops = smoother transition = more special, professional look
-    const numStops = 16; // Even more stops for silky smooth aura
-
+    // Subtle base gradient: gentle fade from core to edge
+    const numStops = 16; // Fewer stops for smoother, more subtle effect
     for (let i = 0; i <= numStops; i++) {
-      const t = i / numStops; // 0 to 1
+      const t = i / numStops;
+      let auraAlpha;
 
-      // Exponential falloff with power 2.8 for natural light decay
-      // This creates a smooth, ethereal fade that feels like real light radiating
-      // Power 2.8 gives a nice balance - not too sharp, not too gradual
-      const falloff = Math.pow(1 - t, 2.8);
-      let auraAlpha = maxAuraAlpha * falloff;
+      if (t <= highOpacityZone) {
+        // First 20%: gentle fade from 25% to 20% opacity
+        const tInZone = t / highOpacityZone;
+        auraAlpha = maxAuraAlpha * (0.85 + 0.15 * (1 - tInZone));
+      } else {
+        // Remaining 80%: smooth exponential fade to 0
+        const tInFadeZone = (t - highOpacityZone) / (1 - highOpacityZone);
+        const falloff = Math.pow(1 - tInFadeZone, 2.5); // Gentler fade
+        auraAlpha = maxAuraAlpha * falloff;
+      }
 
-      // Ensure smooth, continuous fade without harsh transitions
-      // Maintain high intensity near center for that special "glowing" feel
-      gradient.addColorStop(t, `rgba(${gr}, ${gg}, ${gb}, ${auraAlpha})`);
+      auraAlpha = Math.min(auraAlpha, maxAuraAlpha);
+      // Base glow at 15% intensity for subtlety
+      gradient.addColorStop(t, `rgba(${gr}, ${gg}, ${gb}, ${auraAlpha * 0.5})`);
     }
 
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.arc(x, y, totalRadius, 0, 2 * Math.PI);
     ctx.fill();
+
+    // Now draw subtle sparkles/particles for gentle sparkle effect
+    // Fewer, smaller sparkles for subtlety
+    const numSparkles = Math.max(4, Math.floor(glowRadius * 1.2)); // Fewer sparkles
+    const sparkleBaseRadius = Math.max(0.3, glowRadius * 0.08); // Smaller sparkles
+
+    // Simple hash function for deterministic "random" values based on position
+    const hash = (n) => {
+      const x = Math.sin(n) * 10000;
+      return x - Math.floor(x);
+    };
+
+    ctx.save();
+    for (let i = 0; i < numSparkles; i++) {
+      // Use position-based hash for deterministic pseudo-random values
+      const hashValue = hash(x * 1000 + y * 1000 + i * 100);
+      const hashValue2 = hash(x * 2000 + y * 2000 + i * 200);
+
+      // Distribute sparkles in a ring pattern with less variation for stability
+      const angle = (i / numSparkles) * Math.PI * 2 + (hashValue * 0.3 - 0.15); // Less variation
+      const distanceFromCore = radius + glowRadius * (0.4 + hashValue2 * 0.5); // More stable distance
+
+      const sparkleX = x + Math.cos(angle) * distanceFromCore;
+      const sparkleY = y + Math.sin(angle) * distanceFromCore;
+
+      // Calculate opacity based on distance from core
+      const distanceRatio = (distanceFromCore - radius) / glowRadius;
+      let sparkleAlpha;
+
+      if (distanceRatio <= highOpacityZone) {
+        // In high-opacity zone: 30% opacity (subtle)
+        sparkleAlpha = maxAuraAlpha;
+      } else {
+        // In fade zone: exponential fade
+        const tInFadeZone =
+          (distanceRatio - highOpacityZone) / (1 - highOpacityZone);
+        const falloff = Math.pow(1 - tInFadeZone, 2.5); // Gentler fade
+        sparkleAlpha = maxAuraAlpha * falloff;
+      }
+
+      // Smaller, more consistent sparkle size for subtlety
+      const sparkleSize = sparkleBaseRadius * (0.8 + hashValue * 0.4); // Less size variation
+
+      // Draw sparkle as a small, subtle glowing circle
+      const sparkleGradient = ctx.createRadialGradient(
+        sparkleX,
+        sparkleY,
+        0,
+        sparkleX,
+        sparkleY,
+        sparkleSize * 2.5
+      );
+
+      // Subtle sparkle with gentle fade
+      sparkleGradient.addColorStop(
+        0,
+        `rgba(${gr}, ${gg}, ${gb}, ${sparkleAlpha * 0.6})`
+      );
+      sparkleGradient.addColorStop(
+        0.4,
+        `rgba(${gr}, ${gg}, ${gb}, ${sparkleAlpha * 0.3})`
+      );
+      sparkleGradient.addColorStop(1, `rgba(${gr}, ${gg}, ${gb}, 0)`);
+
+      ctx.fillStyle = sparkleGradient;
+      ctx.beginPath();
+      ctx.arc(sparkleX, sparkleY, sparkleSize * 2.5, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 }
 
@@ -1246,7 +1302,10 @@ export function drawPath2D({
       // Default to 1 if neither is set
       return 1;
     })(),
-    coverage: resolveNumber(pathConfig.coverage, globalConfig.coverage ?? 360), // Coverage in radians (360 = full round)
+    iterations: resolveNumber(
+      pathConfig.iterations,
+      globalConfig.iterations ?? 1
+    ), // Number of rounds around BetSpot (1 = 2 rounds, 5 = 5 rounds)
     // For line paths, only use length if explicitly set on the path itself
     // Don't inherit global length for line paths to avoid conflicts with coverage
     // Check if pathConfig.length is explicitly set (not undefined) and is a valid number > 0
@@ -1369,7 +1428,7 @@ export function drawPath2D({
         : 50);
 
     const baseStartPointRad = merged.startPoint; // Base start point in radians (360 = full round)
-    const coverageRad = merged.coverage; // Coverage in radians (360 = full round)
+    const iterations = merged.iterations; // Number of rounds (1 = 2 rounds, 5 = 5 rounds, etc.)
     const length = merged.lineLength; // Line length in px (separate from spark length)
     const direction =
       merged.direction === "anticlockwise" ? "anticlockwise" : "clockwise";
@@ -1380,6 +1439,7 @@ export function drawPath2D({
     // 2. Start with length 0
     // 3. Grow in the direction of travel
     // 4. Grow to full length based on easedNormalizedTime
+    // 5. Travel around the perimeter for the specified number of iterations
 
     // Direction: controls the visual direction of the line animation
     // getLinePathPositionByDistance always uses edgeOrder [0,1,2,3] for consistent distance mapping
@@ -1402,7 +1462,7 @@ export function drawPath2D({
       halfHeight,
       animatedStartPointRad,
       direction,
-      coverageRad,
+      iterations,
       length,
       merged.lineWidth,
       merged.sparkColor,
@@ -1421,20 +1481,7 @@ export function drawPath2D({
     const b = merged.ellipse.b;
     const rotAngle = metrics?.rotAngle ?? (135 * Math.PI) / 180;
 
-    // Eliminate the dot by fading out the last portion and skipping the very last points
-    // Draw most of the path (95%) but skip the last few points to prevent dot
-    const STOP_RATIO = 0.95; // Draw 95% of the path
-    const HARD_SKIP_LAST = 8; // Hard-skip the last N points regardless of fade
-    const maxDrawIndex = Math.max(
-      0,
-      Math.floor(SAMPLE_COUNT * STOP_RATIO) - HARD_SKIP_LAST
-    );
-
-    // Fade out only the last 25% of drawn points to make the end subtle
-    const FADE_OUT_RATIO = 0.25; // Last 25% of drawn points
-    const fadeStartIndex = Math.floor(maxDrawIndex * (1 - FADE_OUT_RATIO));
-
-    for (let i = 0; i <= maxDrawIndex; i++) {
+    for (let i = 0; i <= SAMPLE_COUNT; i++) {
       const t = segTail + (segHead - segTail) * (i / SAMPLE_COUNT);
       const tClamped = Math.max(0, Math.min(1, t));
 
@@ -1455,51 +1502,9 @@ export function drawPath2D({
       );
 
       const along01 = i / SAMPLE_COUNT;
-      let radius =
+      const radius =
         merged.tailRadius + (merged.headRadius - merged.tailRadius) * along01;
-
-      // Apply extremely aggressive fade-out to the last portion to eliminate the dot
-      let pointAlpha = alpha;
-      let shouldAdd = true;
-      let fadeAlpha = 1; // Default to full visibility
-
-      if (i >= fadeStartIndex) {
-        const fadeProgress =
-          (i - fadeStartIndex) / (maxDrawIndex - fadeStartIndex);
-        // Aggressive fade using steep ease-out curve (power of 5 for fast fade)
-        fadeAlpha = Math.max(0, 1 - Math.pow(fadeProgress, 5));
-        pointAlpha = alpha * fadeAlpha;
-
-        // For the fade region, make radius go back towards tailRadius instead of headRadius
-        // This ensures the end is thin, not a large dot
-        const fadeAlong01 =
-          (i - fadeStartIndex) / (maxDrawIndex - fadeStartIndex);
-        const targetRadius =
-          merged.tailRadius +
-          (merged.headRadius - merged.tailRadius) * (1 - fadeAlong01);
-        radius = targetRadius * Math.max(0, fadeAlpha);
-
-        // Only add point in fade region if it has reasonable visibility
-        // Use moderate threshold to ensure no visible dot while keeping circle visible
-        const radiusRatio = radius / Math.max(merged.headRadius, 0.001);
-        // Require alpha > 0.4 and radius > 0.2 to ensure some visibility but prevent visible dot
-        // Skip points that are too small or too faint to prevent visible dot at the end
-        shouldAdd = pointAlpha > 0.4 && radius > 0.2;
-      }
-
-      // Add point if it should be visible
-      // Also reduce glow radius for fade region to prevent glow from making dot visible
-      if (shouldAdd) {
-        const glowRadiusMultiplier = i >= fadeStartIndex ? fadeAlpha : 1;
-        points.push({
-          x,
-          y,
-          radius,
-          along01,
-          alpha: pointAlpha,
-          glowRadiusMultiplier,
-        });
-      }
+      points.push({ x, y, radius, along01 });
     }
   } else {
     const startDir = getAngleForVertex(pathConfig.startVertex);
