@@ -3,6 +3,11 @@ export class CPUMonitor {
     this.sampleSize = sampleSize;
     this.frameTimes = [];
     this.frameStartTime = 0;
+    this.frameBudget = 16.67;
+  }
+
+  setFrameBudget(frameBudget) {
+    this.frameBudget = frameBudget;
   }
 
   startFrame() {
@@ -28,8 +33,7 @@ export class CPUMonitor {
 
     const avgFrameTime =
       this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
-    const frameBudget = 16.67;
-    const cpuUsage = Math.min(100, (avgFrameTime / frameBudget) * 100);
+    const cpuUsage = Math.min(100, (avgFrameTime / this.frameBudget) * 100);
 
     return Math.round(cpuUsage * 10) / 10;
   }
@@ -40,7 +44,7 @@ export class CPUMonitor {
   }
 }
 
-export function drawCPUUsage(ctx, cpuUsage, frameTime, x, y) {
+export function drawCPUUsage(ctx, cpuUsage, frameTime, fps, x, y) {
   const padding = 10;
   const fontSize = 14;
   const lineHeight = fontSize + 4;
@@ -52,15 +56,21 @@ export function drawCPUUsage(ctx, cpuUsage, frameTime, x, y) {
 
   const cpuText = `CPU: ${cpuUsage.toFixed(1)}%`;
   const frameText = `Frame: ${frameTime.toFixed(2)}ms`;
+  const fpsText = `FPS: ${fps.toFixed(1)}`;
 
   const cpuMetrics = ctx.measureText(cpuText);
   const frameMetrics = ctx.measureText(frameText);
-  const maxWidth = Math.max(cpuMetrics.width, frameMetrics.width);
+  const fpsMetrics = ctx.measureText(fpsText);
+  const maxWidth = Math.max(
+    cpuMetrics.width,
+    frameMetrics.width,
+    fpsMetrics.width
+  );
 
   const bgX = x - maxWidth - padding * 2;
   const bgY = y;
   const bgWidth = maxWidth + padding * 2;
-  const bgHeight = lineHeight * 2 + padding * 2;
+  const bgHeight = lineHeight * 3 + padding * 2;
 
   ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
   ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
@@ -71,6 +81,10 @@ export function drawCPUUsage(ctx, cpuUsage, frameTime, x, y) {
 
   ctx.fillStyle = "#ffffff";
   ctx.fillText(frameText, x - padding, y + padding + lineHeight);
+
+  const fpsColor = fps < 30 ? "#ff4444" : fps < 50 ? "#ffaa00" : "#44ff44";
+  ctx.fillStyle = fpsColor;
+  ctx.fillText(fpsText, x - padding, y + padding + lineHeight * 2);
 
   ctx.restore();
 }

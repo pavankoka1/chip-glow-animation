@@ -29,7 +29,12 @@ export default function GlowAnimation2D({
   const accumulatedSecRef = useRef(0);
   const pathMetricsRef = useRef(new Map());
   const cpuMonitorRef = useRef(new CPUMonitor(60));
-  useFps({ sampleSize: 90 });
+  const fps = useFps({ sampleSize: 60, continuous: true });
+  const fpsRef = useRef(fps);
+
+  useEffect(() => {
+    fpsRef.current = fps;
+  }, [fps]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -50,6 +55,7 @@ export default function GlowAnimation2D({
 
     const animate = (ts) => {
       cpuMonitorRef.current.startFrame();
+
       if (!isPlaying) {
         animationIdRef.current = null;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -60,6 +66,10 @@ export default function GlowAnimation2D({
       const dtSec = Math.min(MAX_DT_SEC, (ts - lastTsRef.current) / 1000);
       lastTsRef.current = ts;
       accumulatedSecRef.current += dtSec;
+
+      const currentFps = fpsRef.current;
+      const frameBudget = 1000 / Math.max(currentFps, 1);
+      cpuMonitorRef.current.setFrameBudget(frameBudget);
 
       const currentTimeSec = accumulatedSecRef.current;
 
@@ -315,7 +325,7 @@ export default function GlowAnimation2D({
       const frameTime = cpuMonitorRef.current.endFrame();
       const cpuUsage = cpuMonitorRef.current.getCPUUsage();
 
-      drawCPUUsage(ctx, cpuUsage, frameTime, canvas.width, 0);
+      drawCPUUsage(ctx, cpuUsage, frameTime, currentFps, canvas.width, 0);
 
       animationIdRef.current = requestAnimationFrame(animate);
     };
