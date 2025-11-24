@@ -6,13 +6,16 @@ import {
 } from "../geometry";
 import {
   PATH_SAMPLE_COUNT,
+  MOBILE_PATH_SAMPLE_COUNT,
   SAMPLE_COUNT,
+  MOBILE_SAMPLE_COUNT,
   CIRCLE_ROTATIONS,
   TOLERANCE,
   MAX_ITERATIONS,
   EPSILON,
 } from "../constants";
 import { drawGlowPoint } from "../rendering";
+import { isMobileDevice } from "../mobileOptimization";
 
 function findThetaFromPoint(targetX, targetY, getEllipsePosMath, initialGuess = 0) {
   const guesses = [
@@ -142,7 +145,7 @@ export function computeCirclePathLength(
     START_THETA = bestTheta;
   }
 
-  const ellipseSamples = 64;
+  const ellipseSamples = isMobileDevice() ? 32 : 64;
   let ellipsePathLength = 0;
   let [prevX, prevY] = getEllipsePos(START_THETA);
 
@@ -291,9 +294,10 @@ export function renderCircle(
   const circleRadius = metrics.circleRadius;
 
   const points = [];
+  const sampleCount = isMobileDevice() ? MOBILE_SAMPLE_COUNT : SAMPLE_COUNT;
 
-  for (let i = 0; i <= SAMPLE_COUNT; i++) {
-    const t = segTail + (segHead - segTail) * (i / SAMPLE_COUNT);
+  for (let i = 0; i <= sampleCount; i++) {
+    const t = segTail + (segHead - segTail) * (i / sampleCount);
     const tClamped = Math.max(0, Math.min(totalSpan, t));
 
     const [x, y] = getCirclePathPosition(
@@ -312,7 +316,7 @@ export function renderCircle(
       direction
     );
 
-    const along01 = i / SAMPLE_COUNT;
+    const along01 = i / sampleCount;
     const radius = tailRadius + (headRadius - tailRadius) * along01;
     points.push({ x, y, radius });
   }

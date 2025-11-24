@@ -14,6 +14,7 @@ import {
   applyEasingSpark,
 } from "./canvas2d/easing";
 import { calculateAutoA, getDynamicRotAngle } from "./canvas2d/geometry";
+import { getDevicePixelRatio } from "./canvas2d/mobileOptimization";
 import { renderPath } from "./canvas2d/pathRenderer";
 import { delayToSeconds } from "./canvas2d/utils";
 
@@ -47,8 +48,17 @@ export default function GlowAnimation2D({
     }
 
     const resizeCanvas = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      const dpr = getDevicePixelRatio();
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
     };
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);

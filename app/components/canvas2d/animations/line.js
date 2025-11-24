@@ -1,5 +1,6 @@
 import { hexToRgb } from "../utils";
-import { LINE_SAMPLE_COUNT, GROWTH_PHASE_RATIO, EPSILON } from "../constants";
+import { LINE_SAMPLE_COUNT, MOBILE_LINE_SAMPLE_COUNT, GROWTH_PHASE_RATIO, EPSILON } from "../constants";
+import { isMobileDevice } from "../mobileOptimization";
 import { getLinePathPositionByDistance } from "./lineGeometry";
 
 export function computeLinePathLength(centerX, centerY, rect, startPoint, direction) {
@@ -136,13 +137,14 @@ function drawLinePath(
         const totalLength = firstPartLength + secondPartLength;
 
         if (totalLength > 0) {
+          const lineSampleCount = isMobileDevice() ? MOBILE_LINE_SAMPLE_COUNT : LINE_SAMPLE_COUNT;
           const firstPartSamples = Math.max(
             1,
-            Math.floor(LINE_SAMPLE_COUNT * (firstPartLength / totalLength))
+            Math.floor(lineSampleCount * (firstPartLength / totalLength))
           );
           const secondPartSamples = Math.max(
             1,
-            Math.floor(LINE_SAMPLE_COUNT * (secondPartLength / totalLength))
+            Math.floor(lineSampleCount * (secondPartLength / totalLength))
           );
 
           for (let i = 0; i <= firstPartSamples; i++) {
@@ -185,13 +187,14 @@ function drawLinePath(
         const totalLength = firstPartLength + secondPartLength;
 
         if (totalLength > 0) {
+          const lineSampleCount = isMobileDevice() ? MOBILE_LINE_SAMPLE_COUNT : LINE_SAMPLE_COUNT;
           const firstPartSamples = Math.max(
             1,
-            Math.floor(LINE_SAMPLE_COUNT * (firstPartLength / totalLength))
+            Math.floor(lineSampleCount * (firstPartLength / totalLength))
           );
           const secondPartSamples = Math.max(
             1,
-            Math.floor(LINE_SAMPLE_COUNT * (secondPartLength / totalLength))
+            Math.floor(lineSampleCount * (secondPartLength / totalLength))
           );
 
           for (let i = 0; i <= firstPartSamples; i++) {
@@ -228,8 +231,9 @@ function drawLinePath(
         }
       }
     } else {
-      for (let i = 0; i <= LINE_SAMPLE_COUNT; i++) {
-        const t = LINE_SAMPLE_COUNT > 0 ? i / LINE_SAMPLE_COUNT : 0;
+      const lineSampleCount = isMobileDevice() ? MOBILE_LINE_SAMPLE_COUNT : LINE_SAMPLE_COUNT;
+      for (let i = 0; i <= lineSampleCount; i++) {
+        const t = lineSampleCount > 0 ? i / lineSampleCount : 0;
         const distanceAlongLine = actualLineLength * t;
         const distance = lineStartDistance + distanceAlongLine * directionSign;
         const normalizedDist = normalizeDistance(distance);

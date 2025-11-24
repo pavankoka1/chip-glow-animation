@@ -7,10 +7,13 @@ import { getAngleForVertex } from "../utils";
 import { drawGlowPoint } from "../rendering";
 import {
   INTERSECTION_SAMPLE_COUNT,
+  MOBILE_INTERSECTION_SAMPLE_COUNT,
   OUTSIDE_THRESHOLD,
   SAMPLE_COUNT,
+  MOBILE_SAMPLE_COUNT,
   EPSILON,
 } from "../constants";
+import { isMobileDevice } from "../mobileOptimization";
 
 function findEllipseBetSpotIntersection(
   a,
@@ -116,8 +119,9 @@ export function computeSparkPathLength(
   );
   let total = 0;
 
-  for (let i = 1; i <= INTERSECTION_SAMPLE_COUNT; i++) {
-    const t = i / INTERSECTION_SAMPLE_COUNT;
+  const intersectionSamples = isMobileDevice() ? MOBILE_INTERSECTION_SAMPLE_COUNT : INTERSECTION_SAMPLE_COUNT;
+  for (let i = 1; i <= intersectionSamples; i++) {
+    const t = i / intersectionSamples;
     const th = thetaStart + (actualThetaEnd - thetaStart) * t;
 
     const [px, py] = getEllipsePosition2D(
@@ -267,9 +271,10 @@ export function renderSpark(
   const initialPathRatio = initialPathRange / Math.max(totalPathRange, EPSILON);
 
   const points = [];
+  const sampleCount = isMobileDevice() ? MOBILE_SAMPLE_COUNT : SAMPLE_COUNT;
 
-  for (let i = 0; i <= SAMPLE_COUNT; i++) {
-    const t = segTail + (segHead - segTail) * (i / SAMPLE_COUNT);
+  for (let i = 0; i <= sampleCount; i++) {
+    const t = segTail + (segHead - segTail) * (i / sampleCount);
     const tClamped = Math.max(0, Math.min(totalSpan, t));
 
     const [x, y] = getSparkPathPosition(
@@ -298,7 +303,7 @@ export function renderSpark(
       }
     }
 
-    const along01 = i / SAMPLE_COUNT;
+    const along01 = i / sampleCount;
     const radius = tailRadius + (headRadius - tailRadius) * along01;
     points.push({ x, y, radius });
   }

@@ -24,6 +24,11 @@ export const INTERSECTION_SAMPLE_COUNT = 256;
 export const LINE_SAMPLE_COUNT = 150;
 export const CLOSE_SAMPLE_COUNT = 50;
 
+export const MOBILE_SAMPLE_COUNT = 30;
+export const MOBILE_PATH_SAMPLE_COUNT = 64;
+export const MOBILE_INTERSECTION_SAMPLE_COUNT = 128;
+export const MOBILE_LINE_SAMPLE_COUNT = 80;
+
 export const EPSILON = 0.0001;
 export const OUTSIDE_THRESHOLD = 10;
 export const MAX_ITERATIONS = 50;
