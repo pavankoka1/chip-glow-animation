@@ -324,3 +324,81 @@ export function renderSpark(
   ctx.restore();
 }
 
+export function renderSparkToPoints(
+  pointsArray,
+  pathConfig,
+  globalConfig,
+  metrics,
+  segTail,
+  segHead,
+  totalSpan,
+  alpha,
+  rect,
+  headRadius,
+  tailRadius,
+  sparkColorRgb,
+  glowColorRgb,
+  glowRadius
+) {
+  const centerX = metrics.centerX;
+  const centerY = metrics.centerY;
+  const a = metrics.a;
+  const b = metrics.b;
+  const rotAngle = metrics.rotAngle;
+  const thetaStartLocal = 0.0;
+  const actualThetaEnd = metrics.actualThetaEnd ?? metrics.thetaEndLocal;
+
+  const halfWidth = rect ? rect.width / 2 : 50;
+  const halfHeight = rect ? rect.height / 2 : 50;
+
+  const initialPathEndTheta = Math.abs(metrics.thetaEndLocal ?? actualThetaEnd);
+  const totalPathRange = Math.abs(actualThetaEnd - thetaStartLocal);
+  const initialPathRange = Math.abs(initialPathEndTheta - thetaStartLocal);
+  const initialPathRatio = initialPathRange / Math.max(totalPathRange, EPSILON);
+
+  const sampleCount = isMobileDevice() ? MOBILE_SAMPLE_COUNT : SAMPLE_COUNT;
+
+  for (let i = 0; i <= sampleCount; i++) {
+    const t = segTail + (segHead - segTail) * (i / sampleCount);
+    const tClamped = Math.max(0, Math.min(totalSpan, t));
+
+    const [x, y] = getSparkPathPosition(
+      tClamped,
+      a,
+      b,
+      rotAngle,
+      thetaStartLocal,
+      actualThetaEnd,
+      centerX,
+      centerY,
+      metrics.ellipseTiltDeg,
+      metrics.ellipseRotationDeg
+    );
+
+    const isPastInitialPath = tClamped > initialPathRatio;
+
+    if (isPastInitialPath) {
+      const isInside =
+        x >= centerX - halfWidth &&
+        x <= centerX + halfWidth &&
+        y >= centerY - halfHeight &&
+        y <= centerY + halfHeight;
+      if (isInside) {
+        break;
+      }
+    }
+
+    const along01 = i / sampleCount;
+    const radius = tailRadius + (headRadius - tailRadius) * along01;
+    pointsArray.push({
+      x,
+      y,
+      radius,
+      sparkColor: sparkColorRgb,
+      glowColor: glowColorRgb,
+      alpha,
+      glowRadius,
+    });
+  }
+}
+

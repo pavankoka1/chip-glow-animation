@@ -337,3 +337,63 @@ export function renderCircle(
   ctx.restore();
 }
 
+export function renderCircleToPoints(
+  pointsArray,
+  pathConfig,
+  globalConfig,
+  metrics,
+  segTail,
+  segHead,
+  totalSpan,
+  alpha,
+  headRadius,
+  tailRadius,
+  sparkColorRgb,
+  glowColorRgb,
+  glowRadius
+) {
+  const direction = pathConfig.direction ?? globalConfig.direction ?? "clockwise";
+
+  const centerX = metrics.centerX;
+  const centerY = metrics.centerY;
+  const a = metrics.a;
+  const b = metrics.b;
+  const rotAngle = metrics.rotAngle;
+  const circleRadius = metrics.circleRadius;
+
+  const sampleCount = isMobileDevice() ? MOBILE_SAMPLE_COUNT : SAMPLE_COUNT;
+
+  for (let i = 0; i <= sampleCount; i++) {
+    const t = segTail + (segHead - segTail) * (i / sampleCount);
+    const tClamped = Math.max(0, Math.min(totalSpan, t));
+
+    const [x, y] = getCirclePathPosition(
+      tClamped,
+      a,
+      b,
+      rotAngle,
+      centerX,
+      centerY,
+      circleRadius,
+      metrics.startTheta ?? 0,
+      metrics.meetingTheta ?? 0,
+      metrics.ellipsePortion ?? 0.5,
+      metrics.circlePortion ?? 0.5,
+      metrics.meetingCircleAngle ?? 0,
+      direction
+    );
+
+    const along01 = i / sampleCount;
+    const radius = tailRadius + (headRadius - tailRadius) * along01;
+    pointsArray.push({
+      x,
+      y,
+      radius,
+      sparkColor: sparkColorRgb,
+      glowColor: glowColorRgb,
+      alpha,
+      glowRadius,
+    });
+  }
+}
+
