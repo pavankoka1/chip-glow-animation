@@ -2,11 +2,10 @@
 
 import { useEffect, useRef } from "react";
 import useFps from "../../hooks/useFps";
-import { DEFAULT_CONFIG } from "../canvas2d/constants";
 import * as circleAnimation from "../canvas2d/animations/circle";
 import * as lineAnimation from "../canvas2d/animations/line";
 import * as sparkAnimation from "../canvas2d/animations/spark";
-import { EPSILON, MAX_DT_SEC } from "../canvas2d/constants";
+import { DEFAULT_CONFIG, EPSILON, MAX_DT_SEC } from "../canvas2d/constants";
 import { CPUMonitor, drawCPUUsage } from "../canvas2d/cpuMonitor";
 import {
   applyEasingCircle,
@@ -14,10 +13,15 @@ import {
   applyEasingSpark,
 } from "../canvas2d/easing";
 import { calculateAutoA, getDynamicRotAngle } from "../canvas2d/geometry";
-import { delayToSeconds } from "../canvas2d/utils";
-import { vertexShaderSource, fragmentShaderSource } from "./shaders";
-import { createShader, createProgram, getDevicePixelRatio } from "./webglUtils";
-import { hexToRgb } from "../canvas2d/utils";
+import { delayToSeconds, hexToRgb } from "../canvas2d/utils";
+import {
+  getSharedActivePaths,
+  getSharedColorCache,
+  getSharedConfigCache,
+  getSharedPathConstants,
+} from "./configCache";
+import { fragmentShaderSource, vertexShaderSource } from "./shaders";
+import { createProgram, createShader, getDevicePixelRatio } from "./webglUtils";
 
 export default function GlowAnimationWebGL({
   anchorEl,
@@ -31,7 +35,6 @@ export default function GlowAnimationWebGL({
   const animationIdRef = useRef(null);
   const lastTsRef = useRef(null);
   const accumulatedSecRef = useRef(0);
-  const pathMetricsRef = useRef(new Map());
   const cpuMonitorRef = useRef(new CPUMonitor(60));
   const fps = useFps({ sampleSize: 60, continuous: false });
   const fpsRef = useRef(fps);
@@ -58,6 +61,8 @@ export default function GlowAnimationWebGL({
     devicePixelRatio: null,
   });
   const pointCountRef = useRef(0);
+  // Path metrics are per-instance (depend on anchorEl position)
+  const pathMetricsRef = useRef(new Map());
 
   useEffect(() => {
     fpsRef.current = fps;
@@ -94,8 +99,16 @@ export default function GlowAnimationWebGL({
     glRef.current = gl;
 
     try {
-      const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
-      const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+      const vertexShader = createShader(
+        gl,
+        gl.VERTEX_SHADER,
+        vertexShaderSource
+      );
+      const fragmentShader = createShader(
+        gl,
+        gl.FRAGMENT_SHADER,
+        fragmentShaderSource
+      );
       const program = createProgram(gl, vertexShader, fragmentShader);
       programRef.current = program;
 
@@ -109,7 +122,10 @@ export default function GlowAnimationWebGL({
       const glowRadiusLocation = gl.getAttribLocation(program, "a_glowRadius");
 
       const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
-      const devicePixelRatioLocation = gl.getUniformLocation(program, "u_devicePixelRatio");
+      const devicePixelRatioLocation = gl.getUniformLocation(
+        program,
+        "u_devicePixelRatio"
+      );
 
       attribsRef.current = {
         position: positionLocation,
@@ -157,7 +173,11 @@ export default function GlowAnimationWebGL({
         gl.viewport(0, 0, canvas.width, canvas.height);
         gl.useProgram(program);
         if (uniformsRef.current.resolution) {
-          gl.uniform2f(uniformsRef.current.resolution, canvas.width, canvas.height);
+          gl.uniform2f(
+            uniformsRef.current.resolution,
+            canvas.width,
+            canvas.height
+          );
         }
         if (uniformsRef.current.devicePixelRatio) {
           gl.uniform1f(uniformsRef.current.devicePixelRatio, dpr);
@@ -183,8 +203,8 @@ export default function GlowAnimationWebGL({
       });
 
       const precalculatePathMetrics = () => {
-        const cfg = { ...DEFAULT_CONFIG, ...config };
-        const activePaths = (cfg.paths || []).filter((p) => p.enabled !== false);
+        const cfg = getSharedConfigCache(config, DEFAULT_CONFIG);
+        const activePaths = getSharedActivePaths(cfg);
         const rect = anchorRectRef.current;
         const [centerX, centerY] = anchorCenterRef.current;
 
@@ -320,10 +340,9 @@ export default function GlowAnimationWebGL({
 
         const currentTimeSec = accumulatedSecRef.current;
         const rect = anchorRectRef.current;
-        const [centerX, centerY] = anchorCenterRef.current;
 
-        const cfg = { ...DEFAULT_CONFIG, ...config };
-        const activePaths = (cfg.paths || []).filter((p) => p.enabled !== false);
+        const cfg = getSharedConfigCache(config, DEFAULT_CONFIG);
+        const activePaths = getSharedActivePaths(cfg);
 
         let allComplete = activePaths.length > 0;
         const animationTimeMsGlobal =
@@ -338,17 +357,48 @@ export default function GlowAnimationWebGL({
 
           const delayRaw = p.delay || 0;
           const delaySec = delayToSeconds(delayRaw);
-          const durationSec =
-            (p.animationTimeMs ?? animationTimeMsGlobal) / 1000.0;
-          const elapsed = Math.max(0, currentTimeSec - delaySec);
-
           const metrics = pathMetricsRef.current.get(p.id);
           const lineLength = p.length ?? cfg.length ?? 300.0;
           const pathLength = metrics?.pathLength || 1.0;
-          const segmentParam = lineLength / Math.max(pathLength, EPSILON);
-          const overshoot = p.overshoot ?? cfg.overshoot ?? 0.08;
-          const fadeWindow = p.fadeWindow ?? cfg.fadeWindow ?? 0.08;
-          const totalSpan = 1.0 + segmentParam + overshoot;
+
+          // Cache path constants (shared across instances since config is same)
+          const pathConstantsKey = `${p.id}-${lineLength}-${pathLength}-${
+            p.animationTimeMs ?? animationTimeMsGlobal
+          }-${p.overshoot ?? cfg.overshoot ?? 0.08}-${
+            p.fadeWindow ?? cfg.fadeWindow ?? 0.08
+          }`;
+          const pathConstants = getSharedPathConstants(pathConstantsKey, () => {
+            const segmentParam = lineLength / Math.max(pathLength, EPSILON);
+            const overshoot = p.overshoot ?? cfg.overshoot ?? 0.08;
+            const fadeWindow = p.fadeWindow ?? cfg.fadeWindow ?? 0.08;
+            const totalSpan = 1.0 + segmentParam + overshoot;
+            const durationSec =
+              (p.animationTimeMs ?? animationTimeMsGlobal) / 1000.0;
+            const fadeWindowDuration = (fadeWindow / totalSpan) * durationSec;
+            const totalDuration = durationSec + fadeWindowDuration;
+            const completeThreshold = totalSpan + fadeWindow;
+
+            return {
+              segmentParam,
+              overshoot,
+              fadeWindow,
+              totalSpan,
+              durationSec,
+              fadeWindowDuration,
+              totalDuration,
+              completeThreshold,
+            };
+          });
+
+          const {
+            segmentParam,
+            totalSpan,
+            totalDuration,
+            completeThreshold,
+            durationSec,
+            fadeWindow,
+          } = pathConstants;
+          const elapsed = Math.max(0, currentTimeSec - delaySec);
 
           const normalizedTime = Math.min(
             1.0,
@@ -367,10 +417,6 @@ export default function GlowAnimationWebGL({
               : isLinePathP
               ? applyEasingLine(normalizedTime)
               : applyEasingSpark(normalizedTime)) * totalSpan;
-          const completeThreshold = totalSpan + fadeWindow;
-
-          const fadeWindowDuration = (fadeWindow / totalSpan) * durationSec;
-          const totalDuration = durationSec + fadeWindowDuration;
 
           const isPathComplete =
             elapsed >= totalDuration ||
@@ -400,7 +446,10 @@ export default function GlowAnimationWebGL({
           if (fadeOut > 0) {
             const fadeOutSec = fadeOut / 1000.0;
             const timeUntilEnd = durationSec - elapsed;
-            fadeOutAlpha = Math.min(1.0, Math.max(0.0, timeUntilEnd / fadeOutSec));
+            fadeOutAlpha = Math.min(
+              1.0,
+              Math.max(0.0, timeUntilEnd / fadeOutSec)
+            );
           }
 
           let alpha = fadeInAlpha * fadeOutAlpha;
@@ -408,26 +457,53 @@ export default function GlowAnimationWebGL({
           const phase = scaledPhase;
           const maxPhase = totalSpan;
           const segHead = Math.min(Math.max(phase, 0), totalSpan);
-          const segTail = Math.min(Math.max(phase - segmentParam, 0), totalSpan);
+          const segTail = Math.min(
+            Math.max(phase - segmentParam, 0),
+            totalSpan
+          );
 
           if (fadeOut <= 0 && !isLinePathP) {
             if (phase > maxPhase) {
-              const fadeMul = 1.0 - Math.min((phase - maxPhase) / Math.max(fadeWindow, EPSILON), 1.0);
+              const fadeMul =
+                1.0 -
+                Math.min(
+                  (phase - maxPhase) / Math.max(fadeWindow, EPSILON),
+                  1.0
+                );
               alpha *= fadeMul;
             } else if (segTail >= 1.0 - EPSILON) {
               const pastEnd = Math.max(0.0, phase - 1.0);
-              const fadeOutPhase = Math.min(pastEnd / Math.max(fadeWindow, EPSILON), 1.0);
+              const fadeOutPhase = Math.min(
+                pastEnd / Math.max(fadeWindow, EPSILON),
+                1.0
+              );
               alpha *= 1.0 - fadeOutPhase;
             }
           }
 
           if (alpha <= 0) continue;
 
-          const sampleCount = isLinePathP ? 150 : 50;
-          const sparkColorRgbRaw = hexToRgb(sparkColor);
-          const glowColorRgbRaw = hexToRgb(glowColor);
-          const sparkColorRgb = [sparkColorRgbRaw[0] / 255, sparkColorRgbRaw[1] / 255, sparkColorRgbRaw[2] / 255];
-          const glowColorRgb = [glowColorRgbRaw[0] / 255, glowColorRgbRaw[1] / 255, glowColorRgbRaw[2] / 255];
+          // Cache color conversions (shared across instances)
+          const colorKey = `${sparkColor}-${glowColor}`;
+          const { sparkColorRgb, glowColorRgb } = getSharedColorCache(
+            colorKey,
+            () => {
+              const sparkColorRgbRaw = hexToRgb(sparkColor);
+              const glowColorRgbRaw = hexToRgb(glowColor);
+              return {
+                sparkColorRgb: [
+                  sparkColorRgbRaw[0] / 255,
+                  sparkColorRgbRaw[1] / 255,
+                  sparkColorRgbRaw[2] / 255,
+                ],
+                glowColorRgb: [
+                  glowColorRgbRaw[0] / 255,
+                  glowColorRgbRaw[1] / 255,
+                  glowColorRgbRaw[2] / 255,
+                ],
+              };
+            }
+          );
 
           if (isLinePathP) {
             const easedTime = applyEasingLine(normalizedTime);
@@ -520,59 +596,93 @@ export default function GlowAnimationWebGL({
           glowRadii[i] = p.glowRadius;
         }
 
-        // Debug: log first point details
-        if (points.length > 0 && Math.random() < 0.01) {
-          const firstPoint = points[0];
-          console.log("First point:", {
-            x: firstPoint.x,
-            y: firstPoint.y,
-            radius: firstPoint.radius,
-            glowRadius: firstPoint.glowRadius,
-            alpha: firstPoint.alpha,
-            sparkColor: firstPoint.sparkColor,
-            glowColor: firstPoint.glowColor,
-            totalPoints: points.length
-          });
-        }
-
         gl.useProgram(programRef.current);
 
         if (uniformsRef.current.resolution) {
-          gl.uniform2f(uniformsRef.current.resolution, canvas.width, canvas.height);
+          gl.uniform2f(
+            uniformsRef.current.resolution,
+            canvas.width,
+            canvas.height
+          );
         }
         if (uniformsRef.current.devicePixelRatio) {
-          gl.uniform1f(uniformsRef.current.devicePixelRatio, getDevicePixelRatio());
+          gl.uniform1f(
+            uniformsRef.current.devicePixelRatio,
+            getDevicePixelRatio()
+          );
         }
 
         gl.bindBuffer(gl.ARRAY_BUFFER, buffersRef.current.position);
         gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
         gl.enableVertexAttribArray(attribsRef.current.position);
-        gl.vertexAttribPointer(attribsRef.current.position, 2, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribPointer(
+          attribsRef.current.position,
+          2,
+          gl.FLOAT,
+          false,
+          0,
+          0
+        );
 
         gl.bindBuffer(gl.ARRAY_BUFFER, buffersRef.current.radius);
         gl.bufferData(gl.ARRAY_BUFFER, radii, gl.DYNAMIC_DRAW);
         gl.enableVertexAttribArray(attribsRef.current.radius);
-        gl.vertexAttribPointer(attribsRef.current.radius, 1, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribPointer(
+          attribsRef.current.radius,
+          1,
+          gl.FLOAT,
+          false,
+          0,
+          0
+        );
 
         gl.bindBuffer(gl.ARRAY_BUFFER, buffersRef.current.sparkColor);
         gl.bufferData(gl.ARRAY_BUFFER, sparkColors, gl.DYNAMIC_DRAW);
         gl.enableVertexAttribArray(attribsRef.current.sparkColor);
-        gl.vertexAttribPointer(attribsRef.current.sparkColor, 3, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribPointer(
+          attribsRef.current.sparkColor,
+          3,
+          gl.FLOAT,
+          false,
+          0,
+          0
+        );
 
         gl.bindBuffer(gl.ARRAY_BUFFER, buffersRef.current.glowColor);
         gl.bufferData(gl.ARRAY_BUFFER, glowColors, gl.DYNAMIC_DRAW);
         gl.enableVertexAttribArray(attribsRef.current.glowColor);
-        gl.vertexAttribPointer(attribsRef.current.glowColor, 3, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribPointer(
+          attribsRef.current.glowColor,
+          3,
+          gl.FLOAT,
+          false,
+          0,
+          0
+        );
 
         gl.bindBuffer(gl.ARRAY_BUFFER, buffersRef.current.alpha);
         gl.bufferData(gl.ARRAY_BUFFER, alphas, gl.DYNAMIC_DRAW);
         gl.enableVertexAttribArray(attribsRef.current.alpha);
-        gl.vertexAttribPointer(attribsRef.current.alpha, 1, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribPointer(
+          attribsRef.current.alpha,
+          1,
+          gl.FLOAT,
+          false,
+          0,
+          0
+        );
 
         gl.bindBuffer(gl.ARRAY_BUFFER, buffersRef.current.glowRadius);
         gl.bufferData(gl.ARRAY_BUFFER, glowRadii, gl.DYNAMIC_DRAW);
         gl.enableVertexAttribArray(attribsRef.current.glowRadius);
-        gl.vertexAttribPointer(attribsRef.current.glowRadius, 1, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribPointer(
+          attribsRef.current.glowRadius,
+          1,
+          gl.FLOAT,
+          false,
+          0,
+          0
+        );
 
         gl.drawArrays(gl.POINTS, 0, points.length);
 
@@ -584,7 +694,14 @@ export default function GlowAnimationWebGL({
           const ctx2d = overlayCanvas.getContext("2d");
           if (ctx2d) {
             ctx2d.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-            drawCPUUsage(ctx2d, cpuUsage, frameTime, fpsRef.current, overlayCanvas.width, 0);
+            drawCPUUsage(
+              ctx2d,
+              cpuUsage,
+              frameTime,
+              fpsRef.current,
+              overlayCanvas.width,
+              0
+            );
           }
         }
 
@@ -631,4 +748,3 @@ export default function GlowAnimationWebGL({
     </>
   );
 }
-

@@ -1,18 +1,33 @@
 "use client";
 
-import { PlayArrow, Settings, Stop } from "@mui/icons-material";
+import { PlayArrow, PlaylistPlay, Settings, Stop } from "@mui/icons-material";
 import { IconButton } from "@mui/material";
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import BetSpot from "../components/BetSpot";
+import BetSpotSelectorModal from "../components/BetSpotSelectorModal";
 import Chip from "../components/Chip";
 import ConfigModal from "../components/ConfigModal";
 import GlowAnimationWebGL from "../components/webgl/GlowAnimationWebGL";
 
+const BETSPOT_COUNT = 5;
+
 export default function WebGLPage() {
-  const betspotRef = useRef(null);
-  const [anchorEl, setAnchorEl] = useState(null);
+  const betspotRef0 = useRef(null);
+  const betspotRef1 = useRef(null);
+  const betspotRef2 = useRef(null);
+  const betspotRef3 = useRef(null);
+  const betspotRef4 = useRef(null);
+  const betspotRefs = useMemo(
+    () => [betspotRef0, betspotRef1, betspotRef2, betspotRef3, betspotRef4],
+    []
+  );
+  const [anchorEls, setAnchorEls] = useState(Array(BETSPOT_COUNT).fill(null));
   const [configOpen, setConfigOpen] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [selectorOpen, setSelectorOpen] = useState(false);
+  const [selectedBetspots, setSelectedBetspots] = useState(
+    Array(BETSPOT_COUNT).fill(true)
+  );
+  const [isPlaying, setIsPlaying] = useState(Array(BETSPOT_COUNT).fill(false));
   const [config, setConfig] = useState({
     animationTimeMs: 1200,
     glowRadius: 5,
@@ -95,28 +110,84 @@ export default function WebGLPage() {
     ],
   });
 
-  useEffect(() => {
-    if (betspotRef.current) {
-      setAnchorEl(betspotRef.current);
+  const handleSelectionChange = (selection) => {
+    setSelectedBetspots(selection);
+    // Reset playing state based on selection
+    const newPlaying = Array(BETSPOT_COUNT).fill(false);
+    selection.forEach((selected, index) => {
+      if (selected) {
+        newPlaying[index] = true;
+      }
+    });
+    setIsPlaying(newPlaying);
+  };
+
+  const handleAnimationComplete = (betspotIndex) => {
+    setIsPlaying((prev) => {
+      const newPlaying = [...prev];
+      newPlaying[betspotIndex] = false;
+      return newPlaying;
+    });
+  };
+
+  const handlePlayPause = () => {
+    const allPlaying = isPlaying.every(
+      (playing, index) => !selectedBetspots[index] || playing
+    );
+    if (allPlaying) {
+      // Stop all selected betspots
+      setIsPlaying((prev) =>
+        prev.map((playing, index) =>
+          selectedBetspots[index] ? false : playing
+        )
+      );
+    } else {
+      // Start all selected betspots
+      setIsPlaying((prev) =>
+        prev.map((playing, index) => (selectedBetspots[index] ? true : playing))
+      );
     }
-  }, []);
+  };
+
+  const isAnyPlaying = isPlaying.some(
+    (playing, index) => selectedBetspots[index] && playing
+  );
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-black">
-      <div className="relative flex items-center justify-center">
-        <BetSpot ref={betspotRef} />
-        <Chip />
+      <div className="grid grid-cols-5 gap-8">
+        {Array.from({ length: BETSPOT_COUNT }).map((_, index) => (
+          <div
+            key={index}
+            className="relative flex items-center justify-center"
+          >
+            <BetSpot
+              ref={(el) => {
+                betspotRefs[index].current = el;
+                if (el && anchorEls[index] !== el) {
+                  setAnchorEls((prev) => {
+                    const newEls = [...prev];
+                    newEls[index] = el;
+                    return newEls;
+                  });
+                }
+              }}
+            />
+            <Chip />
+            {anchorEls[index] && (
+              <GlowAnimationWebGL
+                anchorEl={anchorEls[index]}
+                config={config}
+                isPlaying={isPlaying[index] && selectedBetspots[index]}
+                onAnimationComplete={() => handleAnimationComplete(index)}
+              />
+            )}
+          </div>
+        ))}
       </div>
-      {anchorEl && (
-        <GlowAnimationWebGL
-          anchorEl={anchorEl}
-          config={config}
-          isPlaying={isPlaying}
-          onAnimationComplete={() => setIsPlaying(false)}
-        />
-      )}
+
       <IconButton
-        onClick={() => setIsPlaying(!isPlaying)}
+        onClick={() => setSelectorOpen(true)}
         sx={{
           position: "fixed",
           top: 16,
@@ -131,9 +202,30 @@ export default function WebGLPage() {
             color: "#FFA500",
           },
         }}
-        title={isPlaying ? "Stop Animation" : "Play Animation"}
+        title="Select BetSpots"
       >
-        {isPlaying ? (
+        <PlaylistPlay />
+      </IconButton>
+
+      <IconButton
+        onClick={handlePlayPause}
+        sx={{
+          position: "fixed",
+          top: 16,
+          left: 80,
+          zIndex: 1000,
+          bgcolor: "rgba(255, 215, 0, 0.1)",
+          color: "#FFD700",
+          border: "2px solid #FFD700",
+          "&:hover": {
+            bgcolor: "rgba(255, 215, 0, 0.2)",
+            borderColor: "#FFA500",
+            color: "#FFA500",
+          },
+        }}
+        title={isAnyPlaying ? "Stop Animation" : "Play Animation"}
+      >
+        {isAnyPlaying ? (
           <Stop />
         ) : (
           <PlayArrow sx={{ transform: "translateX(2px)" }} />
@@ -162,6 +254,14 @@ export default function WebGLPage() {
         onClose={() => setConfigOpen(false)}
         config={config}
         onConfigChange={setConfig}
+      />
+
+      <BetSpotSelectorModal
+        open={selectorOpen}
+        onClose={() => setSelectorOpen(false)}
+        betspotCount={BETSPOT_COUNT}
+        selectedBetspots={selectedBetspots}
+        onSelectionChange={handleSelectionChange}
       />
     </div>
   );
