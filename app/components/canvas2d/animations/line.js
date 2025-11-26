@@ -599,11 +599,13 @@ export function renderLineToPoints(
     return;
   }
 
+  // For line animations, use constant radius from lineWidth (not interpolated headRadius/tailRadius)
+  // lineWidth is the diameter, so radius is lineWidth / 2
+  const pointRadius = lineWidth / 2;
+
   const lineSampleCount = points.length - 1;
   for (let i = 0; i < points.length; i++) {
     const point = points[i];
-    const along01 = lineSampleCount > 0 ? i / lineSampleCount : 0;
-    const pointRadius = tailRadius + (headRadius - tailRadius) * along01;
     
     pointsArray.push({
       x: point.x,
