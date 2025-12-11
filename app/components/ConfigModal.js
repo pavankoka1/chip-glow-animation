@@ -164,6 +164,25 @@ function ConfigModalBody({ open, onClose, config, onConfigChange }) {
               gutterBottom
               sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5 }}
             >
+              Number of BetSpots (1-10)
+            </Typography>
+            <Slider
+              size="small"
+              value={draft.betspotCount ?? 5}
+              onChange={(_e, v) => update({ betspotCount: v })}
+              min={1}
+              max={10}
+              step={1}
+              valueLabelDisplay="auto"
+            />
+          </Box>
+
+          <Box>
+            <Typography
+              variant="body2"
+              gutterBottom
+              sx={{ color: "#FFD700", fontWeight: 500, mb: 0.5 }}
+            >
               Animation Time (ms)
             </Typography>
             <Slider

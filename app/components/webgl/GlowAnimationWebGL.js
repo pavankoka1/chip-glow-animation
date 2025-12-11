@@ -28,6 +28,7 @@ export default function GlowAnimationWebGL({
   config = {},
   isPlaying = false,
   onAnimationComplete,
+  onGlowIntensityChange,
 }) {
   const canvasRef = useRef(null);
   const glRef = useRef(null);
@@ -63,6 +64,27 @@ export default function GlowAnimationWebGL({
   const pointCountRef = useRef(0);
   // Path metrics are per-instance (depend on anchorEl position)
   const pathMetricsRef = useRef(new Map());
+  // Track previous glow intensities to avoid unnecessary callbacks
+  const prevGlowIntensitiesRef = useRef({
+    chipGlowIntensity: 0,
+    perimeterGlowIntensity: 0,
+    glowScale: 1.0,
+  });
+  // Track if animation has actually started to avoid calling callback during initialization
+  const hasAnimationStartedRef = useRef(false);
+  // Store callback in ref to avoid adding it to dependency array (prevents animation reset)
+  const onGlowIntensityChangeRef = useRef(onGlowIntensityChange);
+  // Store config in ref to prevent unnecessary re-runs
+  const configRef = useRef(config);
+  // Store onAnimationComplete in ref
+  const onAnimationCompleteRef = useRef(onAnimationComplete);
+
+  // Update refs when they change (without triggering useEffect re-run)
+  useEffect(() => {
+    onGlowIntensityChangeRef.current = onGlowIntensityChange;
+    configRef.current = config;
+    onAnimationCompleteRef.current = onAnimationComplete;
+  }, [onGlowIntensityChange, config, onAnimationComplete]);
 
   useEffect(() => {
     fpsRef.current = fps;
@@ -171,16 +193,20 @@ export default function GlowAnimationWebGL({
         canvas.style.height = `${height}px`;
 
         gl.viewport(0, 0, canvas.width, canvas.height);
-        gl.useProgram(program);
-        if (uniformsRef.current.resolution) {
-          gl.uniform2f(
-            uniformsRef.current.resolution,
-            canvas.width,
-            canvas.height
-          );
-        }
-        if (uniformsRef.current.devicePixelRatio) {
-          gl.uniform1f(uniformsRef.current.devicePixelRatio, dpr);
+
+        // Only set uniforms if program is valid
+        if (program && programRef.current) {
+          gl.useProgram(program);
+          if (uniformsRef.current.resolution) {
+            gl.uniform2f(
+              uniformsRef.current.resolution,
+              canvas.width,
+              canvas.height
+            );
+          }
+          if (uniformsRef.current.devicePixelRatio) {
+            gl.uniform1f(uniformsRef.current.devicePixelRatio, dpr);
+          }
         }
 
         if (anchorEl?.getBoundingClientRect) {
@@ -203,7 +229,7 @@ export default function GlowAnimationWebGL({
       });
 
       const precalculatePathMetrics = () => {
-        const cfg = getSharedConfigCache(config, DEFAULT_CONFIG);
+        const cfg = getSharedConfigCache(configRef.current, DEFAULT_CONFIG);
         const activePaths = getSharedActivePaths(cfg);
         const rect = anchorRectRef.current;
         const [centerX, centerY] = anchorCenterRef.current;
@@ -326,6 +352,13 @@ export default function GlowAnimationWebGL({
           animationIdRef.current = null;
           gl.clearColor(0, 0, 0, 0);
           gl.clear(gl.COLOR_BUFFER_BIT);
+          // Reset glow ref but don't call callback here to avoid re-render loops
+          // The callback will be handled in the useEffect cleanup
+          prevGlowIntensitiesRef.current = {
+            chipGlowIntensity: 0,
+            perimeterGlowIntensity: 0,
+            glowScale: 1.0,
+          };
           return;
         }
 
@@ -341,8 +374,78 @@ export default function GlowAnimationWebGL({
         const currentTimeSec = accumulatedSecRef.current;
         const rect = anchorRectRef.current;
 
-        const cfg = getSharedConfigCache(config, DEFAULT_CONFIG);
+        // Mark that animation has started after first frame
+        if (!hasAnimationStartedRef.current && currentTimeSec > 0) {
+          hasAnimationStartedRef.current = true;
+        }
+
+        const cfg = getSharedConfigCache(configRef.current, DEFAULT_CONFIG);
         const activePaths = getSharedActivePaths(cfg);
+
+        // Calculate glow intensities based on objectGlow path (id 8)
+        // Find the objectGlow path to get its timing
+        const objectGlowPath = activePaths.find((p) => p.type === "objectGlow");
+        let chipGlowIntensity = 0;
+        let perimeterGlowIntensity = 0;
+        let glowScale = 1.0;
+
+        if (objectGlowPath) {
+          const delayRaw = objectGlowPath.delay || 540; // Default 540ms
+          const delaySec = delayToSeconds(delayRaw);
+          const elapsed = Math.max(0, currentTimeSec - delaySec);
+          const durationSec = (objectGlowPath.animationTimeMs ?? 1000) / 1000.0;
+
+          if (elapsed > 0 && elapsed < durationSec) {
+            const firstHalfDuration = 0.5; // 500ms / 1000ms
+            const normalizedTime = Math.min(1.0, elapsed / durationSec);
+
+            if (normalizedTime <= firstHalfDuration) {
+              // First 500ms: glow increases 0-100%, scale 1.0-1.1
+              const progress = normalizedTime / firstHalfDuration;
+              chipGlowIntensity = progress; // 0 to 1
+              perimeterGlowIntensity = progress; // 0 to 1
+              glowScale = 1.0 + 0.1 * progress; // 1.0 to 1.1
+            } else {
+              // Last 500ms: glow decreases 100%-0%, scale 1.1-1.0
+              const progress =
+                (normalizedTime - firstHalfDuration) /
+                (1.0 - firstHalfDuration);
+              chipGlowIntensity = 1.0 - progress; // 1 to 0
+              perimeterGlowIntensity = 1.0 - progress; // 1 to 0
+              glowScale = 1.1 - 0.1 * progress; // 1.1 to 1.0
+            }
+          }
+        }
+
+        // Notify parent of glow intensity changes only when values actually change and animation is playing
+        // Only update if animation is actively playing and has started to avoid infinite loops
+        const callback = onGlowIntensityChangeRef.current;
+        if (
+          callback &&
+          isPlaying &&
+          animationIdRef.current &&
+          hasAnimationStartedRef.current
+        ) {
+          const prev = prevGlowIntensitiesRef.current;
+          const hasChanged =
+            Math.abs(prev.chipGlowIntensity - chipGlowIntensity) > 0.001 ||
+            Math.abs(prev.perimeterGlowIntensity - perimeterGlowIntensity) >
+              0.001 ||
+            Math.abs((prev.glowScale || 1.0) - glowScale) > 0.001;
+
+          if (hasChanged) {
+            prevGlowIntensitiesRef.current = {
+              chipGlowIntensity,
+              perimeterGlowIntensity,
+              glowScale,
+            };
+            callback({
+              chipGlowIntensity,
+              perimeterGlowIntensity,
+              glowScale,
+            });
+          }
+        }
 
         let allComplete = activePaths.length > 0;
         const animationTimeMsGlobal =
@@ -354,6 +457,28 @@ export default function GlowAnimationWebGL({
           const isCirclePathP =
             p.type === "circle" || p.circleRadius !== undefined;
           const isLinePathP = p.type === "line";
+          const isObjectGlowP = p.type === "objectGlow";
+
+          // Handle objectGlow separately - no WebGL points, just CSS glow
+          if (isObjectGlowP) {
+            const delayRaw = p.delay || 0;
+            const delaySec = delayToSeconds(delayRaw);
+            const elapsed = Math.max(0, currentTimeSec - delaySec);
+            const durationSec = (p.animationTimeMs ?? 1000) / 1000.0;
+
+            if (elapsed <= 0) {
+              allComplete = false;
+              continue;
+            }
+
+            if (elapsed >= durationSec) {
+              continue; // Animation complete
+            }
+
+            allComplete = false;
+            // Don't generate WebGL points - glow is handled via CSS in BetSpot
+            continue;
+          }
 
           const delayRaw = p.delay || 0;
           const delaySec = delayToSeconds(delayRaw);
@@ -560,7 +685,7 @@ export default function GlowAnimationWebGL({
           animationIdRef.current = null;
           gl.clearColor(0, 0, 0, 0);
           gl.clear(gl.COLOR_BUFFER_BIT);
-          if (onAnimationComplete) onAnimationComplete();
+          if (onAnimationCompleteRef.current) onAnimationCompleteRef.current();
           return;
         }
 
@@ -594,6 +719,12 @@ export default function GlowAnimationWebGL({
           glowColors[i * 3 + 2] = p.glowColor[2];
           alphas[i] = p.alpha;
           glowRadii[i] = p.glowRadius;
+        }
+
+        // Only set uniforms if program is valid
+        if (!programRef.current) {
+          animationIdRef.current = requestAnimationFrame(animate);
+          return;
         }
 
         gl.useProgram(programRef.current);
@@ -711,12 +842,35 @@ export default function GlowAnimationWebGL({
       if (isPlaying && !animationIdRef.current) {
         lastTsRef.current = null;
         accumulatedSecRef.current = 0;
+        hasAnimationStartedRef.current = false; // Reset flag
+        // Reset glow when animation starts - update ref but don't call callback yet
+        // The callback will be called in the first animate frame if values change
+        prevGlowIntensitiesRef.current = {
+          chipGlowIntensity: -1, // Set to -1 to force first update
+          perimeterGlowIntensity: -1,
+          glowScale: -1,
+        };
         animationIdRef.current = requestAnimationFrame(animate);
       } else if (!isPlaying && animationIdRef.current) {
+        const wasStarted = hasAnimationStartedRef.current;
         cancelAnimationFrame(animationIdRef.current);
         animationIdRef.current = null;
+        hasAnimationStartedRef.current = false;
         gl.clearColor(0, 0, 0, 0);
         gl.clear(gl.COLOR_BUFFER_BIT);
+        // Reset glow when animation stops - only call callback if animation had started
+        prevGlowIntensitiesRef.current = {
+          chipGlowIntensity: 0,
+          perimeterGlowIntensity: 0,
+        };
+        const callback = onGlowIntensityChangeRef.current;
+        if (callback && wasStarted) {
+          callback({
+            chipGlowIntensity: 0,
+            perimeterGlowIntensity: 0,
+            glowScale: 1.0,
+          });
+        }
       }
 
       return () => {
@@ -729,7 +883,7 @@ export default function GlowAnimationWebGL({
     } catch (error) {
       console.error("WebGL initialization error:", error);
     }
-  }, [anchorEl, config, isPlaying, onAnimationComplete]);
+  }, [anchorEl, isPlaying]); // Only depend on anchorEl and isPlaying to prevent unnecessary resets
 
   return (
     <>
@@ -738,13 +892,13 @@ export default function GlowAnimationWebGL({
         className="fixed inset-0 pointer-events-none"
         style={{ zIndex: 0 }}
       />
-      <canvas
+      {/* <canvas
         id="webgl-overlay"
         className="fixed inset-0 pointer-events-none"
         style={{ zIndex: 1 }}
         width={typeof window !== "undefined" ? window.innerWidth : 1920}
         height={typeof window !== "undefined" ? window.innerHeight : 1080}
-      />
+      /> */}
     </>
   );
 }

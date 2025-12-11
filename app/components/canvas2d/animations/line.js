@@ -1,9 +1,20 @@
-import { hexToRgb } from "../utils";
-import { LINE_SAMPLE_COUNT, MOBILE_LINE_SAMPLE_COUNT, GROWTH_PHASE_RATIO, EPSILON } from "../constants";
+import {
+  EPSILON,
+  GROWTH_PHASE_RATIO,
+  LINE_SAMPLE_COUNT,
+  MOBILE_LINE_SAMPLE_COUNT,
+} from "../constants";
 import { isMobileDevice } from "../mobileOptimization";
+import { hexToRgb } from "../utils";
 import { getLinePathPositionByDistance } from "./lineGeometry";
 
-export function computeLinePathLength(centerX, centerY, rect, startPoint, direction) {
+export function computeLinePathLength(
+  centerX,
+  centerY,
+  rect,
+  startPoint,
+  direction
+) {
   if (!rect) {
     const fallbackPerimeter = 2 * (200 + 200);
     return {
@@ -28,11 +39,24 @@ export function computeLinePathLength(centerX, centerY, rect, startPoint, direct
   };
 }
 
-export function computeLineMetrics(pathConfig, globalConfig, rect, centerX, centerY) {
+export function computeLineMetrics(
+  pathConfig,
+  globalConfig,
+  rect,
+  centerX,
+  centerY
+) {
   const startPoint = pathConfig.startPoint ?? 0;
-  const direction = pathConfig.direction ?? globalConfig.direction ?? "clockwise";
+  const direction =
+    pathConfig.direction ?? globalConfig.direction ?? "clockwise";
 
-  const pathResult = computeLinePathLength(centerX, centerY, rect, startPoint, direction);
+  const pathResult = computeLinePathLength(
+    centerX,
+    centerY,
+    rect,
+    startPoint,
+    direction
+  );
 
   return {
     pathLength: pathResult.pathLength,
@@ -71,7 +95,8 @@ function drawLinePath(
   const perimeter = 2 * (width + height);
 
   const defaultLength = (width + height) / 2;
-  const targetLineLength = length !== undefined && length > 0 ? length : defaultLength;
+  const targetLineLength =
+    length !== undefined && length > 0 ? length : defaultLength;
 
   const totalTravelDistance = iterations * perimeter;
 
@@ -137,7 +162,9 @@ function drawLinePath(
         const totalLength = firstPartLength + secondPartLength;
 
         if (totalLength > 0) {
-          const lineSampleCount = isMobileDevice() ? MOBILE_LINE_SAMPLE_COUNT : LINE_SAMPLE_COUNT;
+          const lineSampleCount = isMobileDevice()
+            ? MOBILE_LINE_SAMPLE_COUNT
+            : LINE_SAMPLE_COUNT;
           const firstPartSamples = Math.max(
             1,
             Math.floor(lineSampleCount * (firstPartLength / totalLength))
@@ -157,7 +184,8 @@ function drawLinePath(
               halfWidth,
               halfHeight,
               0,
-              direction
+              direction,
+              5 // 5px border radius
             );
             points.push({ x, y });
           }
@@ -172,7 +200,8 @@ function drawLinePath(
               halfWidth,
               halfHeight,
               0,
-              direction
+              direction,
+              5 // 5px border radius
             );
             points.push({ x, y });
           }
@@ -187,7 +216,9 @@ function drawLinePath(
         const totalLength = firstPartLength + secondPartLength;
 
         if (totalLength > 0) {
-          const lineSampleCount = isMobileDevice() ? MOBILE_LINE_SAMPLE_COUNT : LINE_SAMPLE_COUNT;
+          const lineSampleCount = isMobileDevice()
+            ? MOBILE_LINE_SAMPLE_COUNT
+            : LINE_SAMPLE_COUNT;
           const firstPartSamples = Math.max(
             1,
             Math.floor(lineSampleCount * (firstPartLength / totalLength))
@@ -208,7 +239,8 @@ function drawLinePath(
               halfWidth,
               halfHeight,
               0,
-              direction
+              direction,
+              5 // 5px border radius
             );
             points.push({ x, y });
           }
@@ -224,14 +256,17 @@ function drawLinePath(
               halfWidth,
               halfHeight,
               0,
-              direction
+              direction,
+              5 // 5px border radius
             );
             points.push({ x, y });
           }
         }
       }
     } else {
-      const lineSampleCount = isMobileDevice() ? MOBILE_LINE_SAMPLE_COUNT : LINE_SAMPLE_COUNT;
+      const lineSampleCount = isMobileDevice()
+        ? MOBILE_LINE_SAMPLE_COUNT
+        : LINE_SAMPLE_COUNT;
       for (let i = 0; i <= lineSampleCount; i++) {
         const t = lineSampleCount > 0 ? i / lineSampleCount : 0;
         const distanceAlongLine = actualLineLength * t;
@@ -311,7 +346,8 @@ export function renderLine(
   easedNormalizedTime,
   alpha
 ) {
-  const sparkColor = pathConfig.sparkColor ?? globalConfig.sparkColor ?? "#ffff00";
+  const sparkColor =
+    pathConfig.sparkColor ?? globalConfig.sparkColor ?? "#ffff00";
   const glowColor = pathConfig.glowColor ?? globalConfig.glowColor ?? "#fff391";
   const glowRadius = pathConfig.glowRadius ?? globalConfig.glowRadius ?? 30;
 
@@ -324,9 +360,11 @@ export function renderLine(
     globalValue = Number.parseFloat(globalValue);
   }
   const lineWidth =
-    (typeof pathValue === "number" && !Number.isNaN(pathValue) && pathValue > 0)
+    typeof pathValue === "number" && !Number.isNaN(pathValue) && pathValue > 0
       ? pathValue
-      : (typeof globalValue === "number" && !Number.isNaN(globalValue) && globalValue > 0)
+      : typeof globalValue === "number" &&
+        !Number.isNaN(globalValue) &&
+        globalValue > 0
       ? globalValue
       : 1;
 
@@ -338,7 +376,8 @@ export function renderLine(
       ? pathConfig.length
       : undefined;
   const startPoint = pathConfig.startPoint ?? globalConfig.startPoint ?? 0;
-  const direction = pathConfig.direction === "anticlockwise" ? "anticlockwise" : "clockwise";
+  const direction =
+    pathConfig.direction === "anticlockwise" ? "anticlockwise" : "clockwise";
 
   const centerX = metrics.centerX;
   const centerY = metrics.centerY;
@@ -388,9 +427,11 @@ export function renderLineToPoints(
     globalValue = Number.parseFloat(globalValue);
   }
   const lineWidth =
-    (typeof pathValue === "number" && !Number.isNaN(pathValue) && pathValue > 0)
+    typeof pathValue === "number" && !Number.isNaN(pathValue) && pathValue > 0
       ? pathValue
-      : (typeof globalValue === "number" && !Number.isNaN(globalValue) && globalValue > 0)
+      : typeof globalValue === "number" &&
+        !Number.isNaN(globalValue) &&
+        globalValue > 0
       ? globalValue
       : 1;
 
@@ -402,7 +443,8 @@ export function renderLineToPoints(
       ? pathConfig.length
       : undefined;
   const startPoint = pathConfig.startPoint ?? globalConfig.startPoint ?? 0;
-  const direction = pathConfig.direction === "anticlockwise" ? "anticlockwise" : "clockwise";
+  const direction =
+    pathConfig.direction === "anticlockwise" ? "anticlockwise" : "clockwise";
 
   const centerX = metrics.centerX;
   const centerY = metrics.centerY;
@@ -415,7 +457,8 @@ export function renderLineToPoints(
   const perimeter = 2 * (width + height);
 
   const defaultLength = (width + height) / 2;
-  const targetLineLength = lineLength !== undefined && lineLength > 0 ? lineLength : defaultLength;
+  const targetLineLength =
+    lineLength !== undefined && lineLength > 0 ? lineLength : defaultLength;
 
   const totalTravelDistance = iterations * perimeter;
 
@@ -481,7 +524,9 @@ export function renderLineToPoints(
         const totalLength = firstPartLength + secondPartLength;
 
         if (totalLength > 0) {
-          const lineSampleCount = isMobileDevice() ? MOBILE_LINE_SAMPLE_COUNT : LINE_SAMPLE_COUNT;
+          const lineSampleCount = isMobileDevice()
+            ? MOBILE_LINE_SAMPLE_COUNT
+            : LINE_SAMPLE_COUNT;
           const firstPartSamples = Math.max(
             1,
             Math.floor(lineSampleCount * (firstPartLength / totalLength))
@@ -501,7 +546,8 @@ export function renderLineToPoints(
               halfWidth,
               halfHeight,
               0,
-              direction
+              direction,
+              5 // 5px border radius
             );
             points.push({ x, y });
           }
@@ -516,7 +562,8 @@ export function renderLineToPoints(
               halfWidth,
               halfHeight,
               0,
-              direction
+              direction,
+              5 // 5px border radius
             );
             points.push({ x, y });
           }
@@ -531,7 +578,9 @@ export function renderLineToPoints(
         const totalLength = firstPartLength + secondPartLength;
 
         if (totalLength > 0) {
-          const lineSampleCount = isMobileDevice() ? MOBILE_LINE_SAMPLE_COUNT : LINE_SAMPLE_COUNT;
+          const lineSampleCount = isMobileDevice()
+            ? MOBILE_LINE_SAMPLE_COUNT
+            : LINE_SAMPLE_COUNT;
           const firstPartSamples = Math.max(
             1,
             Math.floor(lineSampleCount * (firstPartLength / totalLength))
@@ -552,7 +601,8 @@ export function renderLineToPoints(
               halfWidth,
               halfHeight,
               0,
-              direction
+              direction,
+              5 // 5px border radius
             );
             points.push({ x, y });
           }
@@ -568,14 +618,17 @@ export function renderLineToPoints(
               halfWidth,
               halfHeight,
               0,
-              direction
+              direction,
+              5 // 5px border radius
             );
             points.push({ x, y });
           }
         }
       }
     } else {
-      const lineSampleCount = isMobileDevice() ? MOBILE_LINE_SAMPLE_COUNT : LINE_SAMPLE_COUNT;
+      const lineSampleCount = isMobileDevice()
+        ? MOBILE_LINE_SAMPLE_COUNT
+        : LINE_SAMPLE_COUNT;
       for (let i = 0; i <= lineSampleCount; i++) {
         const t = lineSampleCount > 0 ? i / lineSampleCount : 0;
         const distanceAlongLine = actualLineLength * t;
@@ -606,7 +659,7 @@ export function renderLineToPoints(
   const lineSampleCount = points.length - 1;
   for (let i = 0; i < points.length; i++) {
     const point = points[i];
-    
+
     pointsArray.push({
       x: point.x,
       y: point.y,
@@ -618,4 +671,3 @@ export function renderLineToPoints(
     });
   }
 }
-

@@ -2,39 +2,54 @@
 
 import { PlayArrow, PlaylistPlay, Settings, Stop } from "@mui/icons-material";
 import { IconButton } from "@mui/material";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BetSpot from "../components/BetSpot";
 import BetSpotSelectorModal from "../components/BetSpotSelectorModal";
 import Chip from "../components/Chip";
 import ConfigModal from "../components/ConfigModal";
 import GlowAnimationWebGL from "../components/webgl/GlowAnimationWebGL";
 
-const BETSPOT_COUNT = 5;
+const MAX_BETSPOT_COUNT = 10;
+const DEFAULT_BETSPOT_COUNT = 1;
+
+// Calculate optimal grid layout (rows and columns as equal as possible)
+function calculateGridLayout(count) {
+  if (count <= 0) return { cols: 1, rows: 1 };
+  if (count === 1) return { cols: 1, rows: 1 };
+
+  // Find the factor pair closest to a square
+  let bestCols = Math.ceil(Math.sqrt(count));
+  let bestRows = Math.ceil(count / bestCols);
+
+  // Try to find a better arrangement
+  for (let cols = Math.floor(Math.sqrt(count)); cols <= count; cols++) {
+    const rows = Math.ceil(count / cols);
+    if (cols * rows >= count) {
+      // Check if this is more square-like
+      const aspectRatio = Math.max(cols, rows) / Math.min(cols, rows);
+      const bestAspectRatio =
+        Math.max(bestCols, bestRows) / Math.min(bestCols, bestRows);
+      if (aspectRatio < bestAspectRatio) {
+        bestCols = cols;
+        bestRows = rows;
+      }
+    }
+  }
+
+  return { cols: bestCols, rows: bestRows };
+}
 
 export default function WebGLPage() {
-  const betspotRef0 = useRef(null);
-  const betspotRef1 = useRef(null);
-  const betspotRef2 = useRef(null);
-  const betspotRef3 = useRef(null);
-  const betspotRef4 = useRef(null);
-  const betspotRefs = useMemo(
-    () => [betspotRef0, betspotRef1, betspotRef2, betspotRef3, betspotRef4],
-    []
-  );
-  const [anchorEls, setAnchorEls] = useState(Array(BETSPOT_COUNT).fill(null));
   const [configOpen, setConfigOpen] = useState(false);
   const [selectorOpen, setSelectorOpen] = useState(false);
-  const [selectedBetspots, setSelectedBetspots] = useState(
-    Array(BETSPOT_COUNT).fill(true)
-  );
-  const [isPlaying, setIsPlaying] = useState(Array(BETSPOT_COUNT).fill(false));
   const [config, setConfig] = useState({
+    betspotCount: DEFAULT_BETSPOT_COUNT,
     animationTimeMs: 1200,
     glowRadius: 5,
     ellipse: { b: 20, a: 76 },
-    headRadius: 3,
+    headRadius: 5,
     tailRadius: 1,
-    length: 100,
+    length: 80,
     sparkColor: "#f1eb9d",
     glowColor: "#fdcb3d",
     paths: [
@@ -42,6 +57,7 @@ export default function WebGLPage() {
         id: 1,
         type: "spark",
         startVertex: "BR",
+        animationTimeMs: 750,
         endVertex: "TL",
         delay: 0,
         ellipseTiltDeg: -45,
@@ -53,67 +69,143 @@ export default function WebGLPage() {
         type: "spark",
         startVertex: "BL",
         endVertex: "TR",
-        delay: 400,
+        delay: 170,
+        animationTimeMs: 710,
         ellipseTiltDeg: 45,
         ellipseRotationDeg: 2,
         enabled: true,
       },
       {
-        id: 3,
-        type: "circle",
-        animationTimeMs: 1200,
-        startVertex: "BR",
-        circleRadius: 25,
-        delay: 650,
+        id: 7,
+        type: "spark",
+        startVertex: "L",
+        endVertex: "R",
+        delay: 380,
+        animationTimeMs: 1040,
         enabled: true,
-        fadeOut: 400,
       },
+      // {
+      //   id: 3,
+      //   type: "circle",
+      //   animationTimeMs: 1200,
+      //   startVertex: "BR",
+      //   circleRadius: 25,
+      //   delay: 650,
+      //   enabled: true,
+      //   fadeOut: 400,
+      // },
+      // {
+      //   id: 4,
+      //   type: "circle",
+      //   animationTimeMs: 1200,
+      //   startVertex: "BL",
+      //   circleRadius: 25,
+      //   delay: 750,
+      //   direction: "anticlockwise",
+      //   enabled: true,
+      //   fadeOut: 400,
+      // },
+      // {
+      //   id: 5,
+      //   type: "line",
+      //   animationTimeMs: 1000,
+      //   startPoint: 315,
+      //   lineWidth: 2, // Line thickness
+      //   iterations: 1,
+      //   glowRadius: 5, // Border glow during line animation
+      //   delay: 380,
+      //   direction: "clockwise",
+      //   sparkColor: "#fdcb3d",
+      //   glowColor: "#fdcb3d",
+      //   enabled: true,
+      //   fadeOut: 400,
+      // },
+      // {
+      //   id: 6,
+      //   type: "line",
+      //   animationTimeMs: 1000,
+      //   startPoint: 135,
+      //   lineWidth: 4,
+      //   iterations: 1,
+      //   glowRadius: 0,
+      //   delay: 1000,
+      //   direction: "clockwise",
+      //   sparkColor: "#fdcb3d",
+      //   enabled: true,
+      //   fadeOut: 400,
+      // },
       {
-        id: 4,
-        type: "circle",
-        animationTimeMs: 1200,
-        startVertex: "BL",
-        circleRadius: 25,
-        delay: 750,
-        direction: "anticlockwise",
-        enabled: true,
-        fadeOut: 400,
-      },
-      {
-        id: 5,
-        type: "line",
+        id: 8,
+        type: "objectGlow",
+        delay: 540,
         animationTimeMs: 1000,
-        startPoint: 315,
-        lineWidth: 4,
-        iterations: 1,
-        glowRadius: 0,
-        delay: 1000,
-        direction: "clockwise",
-        sparkColor: "#fdcb3d",
         enabled: true,
-        fadeOut: 400,
-      },
-      {
-        id: 6,
-        type: "line",
-        animationTimeMs: 1000,
-        startPoint: 135,
-        lineWidth: 4,
-        iterations: 1,
-        glowRadius: 0,
-        delay: 1000,
-        direction: "clockwise",
-        sparkColor: "#fdcb3d",
-        enabled: true,
-        fadeOut: 400,
       },
     ],
   });
 
+  const betspotCount = Math.min(
+    Math.max(1, config.betspotCount || DEFAULT_BETSPOT_COUNT),
+    MAX_BETSPOT_COUNT
+  );
+  const gridLayout = useMemo(
+    () => calculateGridLayout(betspotCount),
+    [betspotCount]
+  );
+
+  // Store refs in a ref object (not accessed during render)
+  const betspotRefsStorage = useRef({});
+
+  const [anchorEls, setAnchorEls] = useState(() =>
+    Array(betspotCount).fill(null)
+  );
+  const [selectedBetspots, setSelectedBetspots] = useState(() =>
+    Array(betspotCount).fill(true)
+  );
+  const [isPlaying, setIsPlaying] = useState(() =>
+    Array(betspotCount).fill(false)
+  );
+  const [glowIntensities, setGlowIntensities] = useState(() =>
+    Array(betspotCount).fill({
+      chipGlowIntensity: 0,
+      perimeterGlowIntensity: 0,
+      glowScale: 1.0,
+    })
+  );
+
+  // Update arrays when betspot count changes
+  const prevBetspotCountRef = useRef(betspotCount);
+  useEffect(() => {
+    if (prevBetspotCountRef.current === betspotCount) return;
+    prevBetspotCountRef.current = betspotCount;
+
+    setAnchorEls((prev) => {
+      const newEls = Array(betspotCount).fill(null);
+      for (let i = 0; i < Math.min(prev.length, betspotCount); i++) {
+        newEls[i] = prev[i];
+      }
+      return newEls;
+    });
+    setSelectedBetspots((prev) => {
+      const newSelected = Array(betspotCount).fill(true);
+      for (let i = 0; i < Math.min(prev.length, betspotCount); i++) {
+        newSelected[i] = prev[i];
+      }
+      return newSelected;
+    });
+    setIsPlaying((prev) => {
+      const newPlaying = Array(betspotCount).fill(false);
+      for (let i = 0; i < Math.min(prev.length, betspotCount); i++) {
+        newPlaying[i] = prev[i];
+      }
+      return newPlaying;
+    });
+  }, [betspotCount]);
+
   const handleSelectionChange = (selection) => {
     setSelectedBetspots(selection);
     // Reset playing state based on selection
-    const newPlaying = Array(BETSPOT_COUNT).fill(false);
+    const newPlaying = Array(betspotCount).fill(false);
     selection.forEach((selected, index) => {
       if (selected) {
         newPlaying[index] = true;
@@ -129,6 +221,41 @@ export default function WebGLPage() {
       return newPlaying;
     });
   };
+
+  // Create memoized handlers for each betspot to prevent infinite loops
+  const glowIntensityHandlersRef = useRef({});
+
+  const getGlowIntensityHandler = useCallback((index) => {
+    if (!glowIntensityHandlersRef.current[index]) {
+      glowIntensityHandlersRef.current[index] = (intensities) => {
+        setGlowIntensities((prev) => {
+          const current = prev[index];
+          // Only update if values actually changed (with threshold to avoid floating point issues)
+          const chipChanged =
+            Math.abs(
+              (current?.chipGlowIntensity || 0) - intensities.chipGlowIntensity
+            ) > 0.001;
+          const perimeterChanged =
+            Math.abs(
+              (current?.perimeterGlowIntensity || 0) -
+                intensities.perimeterGlowIntensity
+            ) > 0.001;
+          const scaleChanged =
+            Math.abs(
+              (current?.glowScale || 1.0) - (intensities.glowScale || 1.0)
+            ) > 0.001;
+
+          if (chipChanged || perimeterChanged || scaleChanged) {
+            const newIntensities = [...prev];
+            newIntensities[index] = intensities;
+            return newIntensities;
+          }
+          return prev; // Return previous if no change
+        });
+      };
+    }
+    return glowIntensityHandlersRef.current[index];
+  }, []);
 
   const handlePlayPause = () => {
     const allPlaying = isPlaying.every(
@@ -155,15 +282,22 @@ export default function WebGLPage() {
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-black">
-      <div className="grid grid-cols-5 gap-8">
-        {Array.from({ length: BETSPOT_COUNT }).map((_, index) => (
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: `repeat(${gridLayout.cols}, 1fr)`,
+          gridTemplateRows: `repeat(${gridLayout.rows}, 1fr)`,
+          gap: "20px",
+        }}
+      >
+        {Array.from({ length: betspotCount }).map((_, index) => (
           <div
             key={index}
             className="relative flex items-center justify-center"
           >
             <BetSpot
               ref={(el) => {
-                betspotRefs[index].current = el;
+                betspotRefsStorage.current[index] = el;
                 if (el && anchorEls[index] !== el) {
                   setAnchorEls((prev) => {
                     const newEls = [...prev];
@@ -172,6 +306,11 @@ export default function WebGLPage() {
                   });
                 }
               }}
+              chipGlowIntensity={glowIntensities[index]?.chipGlowIntensity || 0}
+              perimeterGlowIntensity={
+                glowIntensities[index]?.perimeterGlowIntensity || 0
+              }
+              glowScale={glowIntensities[index]?.glowScale || 1.0}
             />
             <Chip />
             {anchorEls[index] && (
@@ -180,6 +319,7 @@ export default function WebGLPage() {
                 config={config}
                 isPlaying={isPlaying[index] && selectedBetspots[index]}
                 onAnimationComplete={() => handleAnimationComplete(index)}
+                onGlowIntensityChange={getGlowIntensityHandler(index)}
               />
             )}
           </div>
@@ -259,7 +399,7 @@ export default function WebGLPage() {
       <BetSpotSelectorModal
         open={selectorOpen}
         onClose={() => setSelectorOpen(false)}
-        betspotCount={BETSPOT_COUNT}
+        betspotCount={betspotCount}
         selectedBetspots={selectedBetspots}
         onSelectionChange={handleSelectionChange}
       />

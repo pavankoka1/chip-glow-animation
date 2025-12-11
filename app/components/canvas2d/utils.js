@@ -9,15 +9,28 @@ export function getAngleForVertex(vertexId) {
   // TR (+1, top) => angle = -π/4
   // BR (+1, bottom) => angle = +π/4
   // BL (-1, bottom) => angle = +3π/4
+  // Centers:
+  // L (left center) => angle = π
+  // R (right center) => angle = 0
+  // T (top center) => angle = -π/2
+  // B (bottom center) => angle = +π/2
   switch (vertexId) {
     case "TL":
-      return -3 * Math.PI / 4;
+      return (-3 * Math.PI) / 4;
     case "TR":
       return -Math.PI / 4;
     case "BR":
       return Math.PI / 4;
     case "BL":
-      return 3 * Math.PI / 4;
+      return (3 * Math.PI) / 4;
+    case "L":
+      return Math.PI; // Left center
+    case "R":
+      return 0; // Right center
+    case "T":
+      return -Math.PI / 2; // Top center
+    case "B":
+      return Math.PI / 2; // Bottom center
     default:
       return -Math.PI / 4; // default to TR-ish
   }
@@ -60,4 +73,3 @@ export function normalizeDelta(angle) {
   a = ((((a + Math.PI) % twoPi) + twoPi) % twoPi) - Math.PI; // wrap to (-PI, PI]
   return a;
 }
-

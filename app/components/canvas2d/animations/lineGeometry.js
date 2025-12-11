@@ -5,14 +5,23 @@ function getLinePathPositionByDistance(
   halfWidth,
   halfHeight,
   startPointRad,
-  direction
+  direction,
+  borderRadius = 5
 ) {
   const safeHalfWidth = halfWidth || 50;
   const safeHalfHeight = halfHeight || 50;
+  const safeBorderRadius = Math.min(
+    borderRadius,
+    Math.min(safeHalfWidth, safeHalfHeight)
+  );
 
   const width = safeHalfWidth * 2;
   const height = safeHalfHeight * 2;
-  const perimeter = 2 * (width + height);
+  // Calculate perimeter with rounded corners
+  // Each corner is a quarter circle, so total corner length = 2 * PI * borderRadius
+  const cornerLength = 2 * Math.PI * safeBorderRadius;
+  const straightEdgesLength = 2 * (width + height) - 8 * safeBorderRadius; // Subtract corner sections
+  const perimeter = straightEdgesLength + cornerLength;
 
   if (perimeter <= 0 || !Number.isFinite(perimeter)) {
     return { x: centerX, y: centerY, angle: 0 };
@@ -38,11 +47,44 @@ function getLinePathPositionByDistance(
     BL: [-safeHalfWidth, -safeHalfHeight],
   };
 
+  // Edge segments with border radius consideration
+  const edgeLength = width - 2 * safeBorderRadius;
+  const verticalEdgeLength = height - 2 * safeBorderRadius;
+  const cornerArcLength = (Math.PI / 2) * safeBorderRadius; // Quarter circle
+
   const edges = [
-    { from: "TL", to: "TR", length: width, angle: 0 },
-    { from: "TR", to: "BR", length: height, angle: Math.PI / 2 },
-    { from: "BR", to: "BL", length: width, angle: Math.PI },
-    { from: "BL", to: "TL", length: height, angle: -Math.PI / 2 },
+    {
+      from: "TL",
+      to: "TR",
+      straightLength: edgeLength,
+      cornerStart: "TL",
+      cornerEnd: "TR",
+      angle: 0,
+    },
+    {
+      from: "TR",
+      to: "BR",
+      straightLength: verticalEdgeLength,
+      cornerStart: "TR",
+      cornerEnd: "BR",
+      angle: Math.PI / 2,
+    },
+    {
+      from: "BR",
+      to: "BL",
+      straightLength: edgeLength,
+      cornerStart: "BR",
+      cornerEnd: "BL",
+      angle: Math.PI,
+    },
+    {
+      from: "BL",
+      to: "TL",
+      straightLength: verticalEdgeLength,
+      cornerStart: "BL",
+      cornerEnd: "TL",
+      angle: -Math.PI / 2,
+    },
   ];
 
   const edgeOrder = [0, 1, 2, 3];
@@ -58,31 +100,73 @@ function getLinePathPositionByDistance(
       break;
     }
 
-    const [fromX, fromY] = corners[edge.from];
-    const [toX, toY] = corners[edge.to];
-    const edgeLen = edge.length;
+    // Total length of this edge segment (straight + corner at start + corner at end)
+    const totalEdgeLength = edge.straightLength + 2 * cornerArcLength;
 
-    if (remainingDist <= edgeLen) {
-      const tOnEdge = edgeLen > 0 ? remainingDist / edgeLen : 0;
+    if (remainingDist <= totalEdgeLength) {
+      let x, y, angle;
 
-      let startX, startY, endX, endY;
-      if (isClockwise) {
-        startX = fromX;
-        startY = fromY;
-        endX = toX;
-        endY = toY;
+      // Check if we're in the first corner
+      if (remainingDist < cornerArcLength) {
+        // In first corner arc
+        const cornerCenter = getCornerCenter(
+          edge.cornerStart,
+          safeHalfWidth,
+          safeHalfHeight,
+          safeBorderRadius
+        );
+        const startAngle = getCornerStartAngle(edge.cornerStart, isClockwise);
+        const arcProgress = remainingDist / cornerArcLength;
+        const angleOffset =
+          (isClockwise ? 1 : -1) * (Math.PI / 2) * arcProgress;
+        const currentAngle = startAngle + angleOffset;
+        x = cornerCenter.x + safeBorderRadius * Math.cos(currentAngle);
+        y = cornerCenter.y + safeBorderRadius * Math.sin(currentAngle);
+        angle = currentAngle + (isClockwise ? Math.PI / 2 : -Math.PI / 2);
+      } else if (remainingDist < cornerArcLength + edge.straightLength) {
+        // In straight section
+        const distOnStraight = remainingDist - cornerArcLength;
+        const tOnStraight =
+          edge.straightLength > 0 ? distOnStraight / edge.straightLength : 0;
+
+        const [fromX, fromY] = getCornerEndPoint(
+          edge.cornerStart,
+          safeHalfWidth,
+          safeHalfHeight,
+          safeBorderRadius,
+          isClockwise
+        );
+        const [toX, toY] = getCornerStartPoint(
+          edge.cornerEnd,
+          safeHalfWidth,
+          safeHalfHeight,
+          safeBorderRadius,
+          isClockwise
+        );
+
+        x = fromX + (toX - fromX) * tOnStraight;
+        y = fromY + (toY - fromY) * tOnStraight;
+        angle = edge.angle;
+        if (!isClockwise) angle += Math.PI;
       } else {
-        startX = toX;
-        startY = toY;
-        endX = fromX;
-        endY = fromY;
+        // In second corner arc
+        const distInCorner =
+          remainingDist - cornerArcLength - edge.straightLength;
+        const cornerCenter = getCornerCenter(
+          edge.cornerEnd,
+          safeHalfWidth,
+          safeHalfHeight,
+          safeBorderRadius
+        );
+        const startAngle = getCornerStartAngle(edge.cornerEnd, isClockwise);
+        const arcProgress = distInCorner / cornerArcLength;
+        const angleOffset =
+          (isClockwise ? 1 : -1) * (Math.PI / 2) * arcProgress;
+        const currentAngle = startAngle + angleOffset;
+        x = cornerCenter.x + safeBorderRadius * Math.cos(currentAngle);
+        y = cornerCenter.y + safeBorderRadius * Math.sin(currentAngle);
+        angle = currentAngle + (isClockwise ? Math.PI / 2 : -Math.PI / 2);
       }
-
-      const x = startX + (endX - startX) * tOnEdge;
-      const y = startY + (endY - startY) * tOnEdge;
-
-      let angle = edge.angle;
-      if (!isClockwise) angle += Math.PI;
 
       const screenX = x + centerX;
       const screenY = -y + centerY;
@@ -90,7 +174,7 @@ function getLinePathPositionByDistance(
       return { x: screenX, y: screenY, angle };
     }
 
-    remainingDist -= edgeLen;
+    remainingDist -= totalEdgeLength;
     currentEdgeIdx++;
     edgeCount++;
   }
@@ -120,5 +204,61 @@ function getLinePathPositionByDistance(
   return { x: centerX, y: centerY, angle: 0 };
 }
 
-export { getLinePathPositionByDistance };
+function getCornerCenter(corner, halfWidth, halfHeight, borderRadius) {
+  switch (corner) {
+    case "TL":
+      return { x: -halfWidth + borderRadius, y: halfHeight - borderRadius };
+    case "TR":
+      return { x: halfWidth - borderRadius, y: halfHeight - borderRadius };
+    case "BR":
+      return { x: halfWidth - borderRadius, y: -halfHeight + borderRadius };
+    case "BL":
+      return { x: -halfWidth + borderRadius, y: -halfHeight + borderRadius };
+    default:
+      return { x: 0, y: 0 };
+  }
+}
 
+function getCornerStartAngle(corner, isClockwise) {
+  // Start angle for each corner when going clockwise
+  const angles = {
+    TL: isClockwise ? Math.PI : Math.PI / 2,
+    TR: isClockwise ? Math.PI / 2 : 0,
+    BR: isClockwise ? 0 : -Math.PI / 2,
+    BL: isClockwise ? -Math.PI / 2 : Math.PI,
+  };
+  return angles[corner] || 0;
+}
+
+function getCornerStartPoint(
+  corner,
+  halfWidth,
+  halfHeight,
+  borderRadius,
+  isClockwise
+) {
+  const center = getCornerCenter(corner, halfWidth, halfHeight, borderRadius);
+  const angle = getCornerStartAngle(corner, isClockwise);
+  return [
+    center.x + borderRadius * Math.cos(angle),
+    center.y + borderRadius * Math.sin(angle),
+  ];
+}
+
+function getCornerEndPoint(
+  corner,
+  halfWidth,
+  halfHeight,
+  borderRadius,
+  isClockwise
+) {
+  const center = getCornerCenter(corner, halfWidth, halfHeight, borderRadius);
+  const startAngle = getCornerStartAngle(corner, isClockwise);
+  const endAngle = startAngle + (isClockwise ? Math.PI / 2 : -Math.PI / 2);
+  return [
+    center.x + borderRadius * Math.cos(endAngle),
+    center.y + borderRadius * Math.sin(endAngle),
+  ];
+}
+
+export { getLinePathPositionByDistance };
