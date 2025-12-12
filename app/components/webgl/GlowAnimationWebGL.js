@@ -30,6 +30,7 @@ export default function GlowAnimationWebGL({
   isPlaying = false,
   onAnimationComplete,
   onGlowIntensityChange,
+  onTimeUpdate,
 }) {
   const canvasRef = useRef(null);
   const glRef = useRef(null);
@@ -92,13 +93,16 @@ export default function GlowAnimationWebGL({
   const configRef = useRef(config);
   // Store onAnimationComplete in ref
   const onAnimationCompleteRef = useRef(onAnimationComplete);
+  // Store onTimeUpdate in ref
+  const onTimeUpdateRef = useRef(onTimeUpdate);
 
   // Update refs when they change (without triggering useEffect re-run)
   useEffect(() => {
     onGlowIntensityChangeRef.current = onGlowIntensityChange;
     configRef.current = config;
     onAnimationCompleteRef.current = onAnimationComplete;
-  }, [onGlowIntensityChange, config, onAnimationComplete]);
+    onTimeUpdateRef.current = onTimeUpdate;
+  }, [onGlowIntensityChange, config, onAnimationComplete, onTimeUpdate]);
 
   // Removed useEffect for fps - using constant 60 FPS
 
@@ -418,6 +422,11 @@ export default function GlowAnimationWebGL({
         const currentTimeSec = accumulatedSecRef.current;
         const rect = anchorRectRef.current;
 
+        // Notify parent of current time for multiplier animations
+        if (onTimeUpdateRef.current && isPlaying) {
+          onTimeUpdateRef.current(currentTimeSec);
+        }
+
         // Mark that animation has started after first frame
         if (!hasAnimationStartedRef.current && currentTimeSec > 0) {
           hasAnimationStartedRef.current = true;
@@ -646,8 +655,15 @@ export default function GlowAnimationWebGL({
           const delayRaw = p.delay || 0;
           const delaySec = delayToSeconds(delayRaw);
           const metrics = pathMetricsRef.current.get(p.id);
+
+          // Skip if metrics haven't been calculated yet
+          if (!metrics) {
+            allComplete = false;
+            continue;
+          }
+
           const lineLength = p.length ?? cfg.length ?? 300.0;
-          const pathLength = metrics?.pathLength || 1.0;
+          const pathLength = metrics.pathLength || 1.0;
 
           // Cache path constants (shared across instances since config is same)
           const pathConstantsKey = `${p.id}-${lineLength}-${pathLength}-${

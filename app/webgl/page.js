@@ -8,6 +8,7 @@ import BetSpot from "../components/BetSpot";
 import BetSpotSelectorModal from "../components/BetSpotSelectorModal";
 import Chip from "../components/Chip";
 import ConfigModal from "../components/ConfigModal";
+import { delayToSeconds } from "../components/canvas2d/utils";
 import GlowAnimationWebGL from "../components/webgl/GlowAnimationWebGL";
 
 // Memoize BetSpot - it's now simple and doesn't need prop comparison
@@ -172,6 +173,19 @@ export default function WebGLPage() {
         headWidth: 5,
         tailWidth: 4,
       },
+      {
+        id: 10,
+        type: "multiplier",
+        delay: 780,
+        animationTimeMs: 1930, // 130 + 250 + 1250 + 300
+        enabled: true,
+        phase1Duration: 130,
+        phase2Duration: 250,
+        phase3Duration: 1250,
+        phase4Duration: 300,
+        maxScale: 1.2,
+        text: "50x",
+      },
     ],
   });
 
@@ -245,25 +259,11 @@ export default function WebGLPage() {
     }))
   );
   // Multiplier animation refs - store element refs and animation state
-  const multiplierRefs = useRef(
-    Array.from({ length: betspotCount }, () => null)
-  );
-  const multiplierAnimationRefs = useRef(
-    Array.from({ length: betspotCount }, () => ({
-      animationFrame: null,
-      startTime: null,
-      isAnimating: false,
-    }))
-  );
-  // Track max glowScale for each betspot to sync multiplier animation
-  const maxGlowScaleRefs = useRef(
-    Array.from({ length: betspotCount }, () => ({
-      maxScale: 1,
-      peakTime: null,
-      hasReachedPeak: false,
-      previousScale: 1,
-      decreasingCount: 0, // Track how many frames scale has been decreasing
-    }))
+  // Support multiple multipliers per betspot (array of refs)
+  const multiplierRefs = useRef(Array.from({ length: betspotCount }, () => []));
+  // Store current time from main animation loop for each betspot
+  const currentTimeSecRefs = useRef(
+    Array.from({ length: betspotCount }, () => 0)
   );
 
   // Helper function to apply glow effects directly to DOM (declared before use)
@@ -373,25 +373,10 @@ export default function WebGLPage() {
         );
       })
     );
-    // Reset multiplier refs
-    multiplierRefs.current = Array.from({ length: betspotCount }, () => null);
-    // Reset multiplier animation refs
-    multiplierAnimationRefs.current = Array.from(
-      { length: betspotCount },
-      () => ({
-        animationFrame: null,
-        startTime: null,
-        isAnimating: false,
-      })
-    );
-    // Reset peak tracking refs
-    maxGlowScaleRefs.current = Array.from({ length: betspotCount }, () => ({
-      maxScale: 1,
-      peakTime: null,
-      hasReachedPeak: false,
-      previousScale: 1,
-      decreasingCount: 0,
-    }));
+    // Reset multiplier refs (array for multiple multipliers per betspot)
+    multiplierRefs.current = Array.from({ length: betspotCount }, () => []);
+    // Reset current time refs
+    currentTimeSecRefs.current = Array.from({ length: betspotCount }, () => 0);
   }, [betspotCount]);
 
   const handleSelectionChange = (selection) => {
@@ -454,114 +439,91 @@ export default function WebGLPage() {
     glowIntensityUpdateTimeoutRef.current = null;
   }, []);
 
-  // Shared multiplier animation function - defined before getGlowIntensityHandler
-  const createMultiplierAnimation = useCallback((index) => {
-    return (timestamp) => {
-      const animRef = multiplierAnimationRefs.current[index];
-      if (!animRef || !animRef.isAnimating) {
-        if (index === 0)
-          console.log(
-            `[BetMultiplier ${index}] Animation frame skipped - not animating`
+  // Process multiplier animations from config using elapsed time (same as other animations)
+  const updateMultiplierAnimations = useCallback(
+    (index, currentTimeSec) => {
+      const multiplierElements = multiplierRefs.current[index];
+      if (!multiplierElements || multiplierElements.length === 0) return;
+
+      const cfg = config;
+      const multiplierPaths = (cfg.paths || []).filter(
+        (p) => p.type === "multiplier" && p.enabled !== false
+      );
+
+      multiplierPaths.forEach((multiplierPath, pathIndex) => {
+        const multiplierEl = multiplierElements[pathIndex];
+        if (!multiplierEl) return;
+
+        // Use same timing system as other animations
+        const delayRaw = multiplierPath.delay || 0;
+        const delaySec = delayToSeconds(delayRaw);
+        const elapsed = Math.max(0, currentTimeSec - delaySec);
+        const durationSec = (multiplierPath.animationTimeMs || 1930) / 1000.0;
+
+        // Get phase durations from config or use defaults
+        const PHASE1_DURATION = (multiplierPath.phase1Duration || 130) / 1000.0;
+        const PHASE2_DURATION = (multiplierPath.phase2Duration || 250) / 1000.0;
+        const PHASE3_DURATION =
+          (multiplierPath.phase3Duration || 1250) / 1000.0;
+        const PHASE4_DURATION = (multiplierPath.phase4Duration || 300) / 1000.0;
+        const maxScale = multiplierPath.maxScale || 1.2;
+
+        const phase1Start = 0;
+        const phase2Start = phase1Start + PHASE1_DURATION;
+        const phase3Start = phase2Start + PHASE2_DURATION;
+        const phase4Start = phase3Start + PHASE3_DURATION;
+        // Use durationSec from config, but ensure it's at least as long as all phases
+        const calculatedTotalDuration = phase4Start + PHASE4_DURATION;
+        const totalDuration = Math.max(durationSec, calculatedTotalDuration);
+
+        let scale = 0;
+        let opacity = 0;
+
+        if (elapsed < 0 || elapsed >= durationSec) {
+          // Before delay or after animation complete
+          scale = 0;
+          opacity = 0;
+        } else if (elapsed < phase2Start) {
+          // Phase 1: 0 -> maxScale scale, 0 -> 1 opacity
+          const phase1Progress = Math.min(
+            1,
+            Math.max(0, elapsed / PHASE1_DURATION)
           );
-        return;
-      }
-
-      // Use the peak time as start time for synchronization
-      // If startTime wasn't set from peak, use current timestamp
-      if (!animRef.startTime) {
-        animRef.startTime = timestamp;
-        if (index === 0)
-          console.log(`[BetMultiplier ${index}] Setting startTime:`, timestamp);
-      }
-
-      // Calculate elapsed time from the start (which should be the peak time)
-      const elapsed = timestamp - animRef.startTime;
-      if (index === 0 && Math.floor(elapsed) % 100 === 0) {
-        console.log(
-          `[BetMultiplier ${index}] Animation running - elapsed:`,
-          Math.floor(elapsed),
-          "ms"
-        );
-      }
-      const INITIAL_DELAY = 100; // No delay when synced to peak
-      const PHASE1_DURATION = 130;
-      const PHASE2_DURATION = 250;
-      const PHASE3_DURATION = 1250;
-      const PHASE4_DURATION = 300;
-
-      const phase1Start = INITIAL_DELAY;
-      const phase2Start = phase1Start + PHASE1_DURATION;
-      const phase3Start = phase2Start + PHASE2_DURATION;
-      const phase4Start = phase3Start + PHASE3_DURATION;
-      const totalDuration = phase4Start + PHASE4_DURATION;
-
-      let scale = 0;
-      let opacity = 0;
-
-      if (elapsed < phase1Start) {
-        scale = 0;
-        opacity = 0;
-      } else if (elapsed < phase2Start) {
-        const phase1Progress = Math.min(
-          1,
-          Math.max(0, (elapsed - phase1Start) / PHASE1_DURATION)
-        );
-        scale = 0 + (1.2 - 0) * phase1Progress;
-        opacity = 0 + (1 - 0) * phase1Progress;
-      } else if (elapsed < phase3Start) {
-        const phase2Progress = Math.min(
-          1,
-          Math.max(0, (elapsed - phase2Start) / PHASE2_DURATION)
-        );
-        scale = 1.2 + (1 - 1.2) * phase2Progress;
-        opacity = 1;
-      } else if (elapsed < phase4Start) {
-        scale = 1;
-        opacity = 1;
-      } else if (elapsed < totalDuration) {
-        const phase4Progress = Math.min(
-          1,
-          Math.max(0, (elapsed - phase4Start) / PHASE4_DURATION)
-        );
-        scale = 1 + (0 - 1) * phase4Progress;
-        opacity = 1 + (0 - 1) * phase4Progress;
-      } else {
-        scale = 0;
-        opacity = 0;
-        animRef.isAnimating = false;
-        animRef.startTime = null;
-        if (animRef.animationFrame) {
-          cancelAnimationFrame(animRef.animationFrame);
-          animRef.animationFrame = null;
+          scale = 0 + (maxScale - 0) * phase1Progress;
+          opacity = 0 + (1 - 0) * phase1Progress;
+        } else if (elapsed < phase3Start) {
+          // Phase 2: maxScale -> 1 scale, opacity 1
+          const phase2Progress = Math.min(
+            1,
+            Math.max(0, (elapsed - phase2Start) / PHASE2_DURATION)
+          );
+          scale = maxScale + (1 - maxScale) * phase2Progress;
+          opacity = 1;
+        } else if (elapsed < phase4Start) {
+          // Phase 3: scale 1, opacity 1 (hold)
+          scale = 1;
+          opacity = 1;
+        } else if (elapsed < phase4Start + PHASE4_DURATION) {
+          // Phase 4: 1 -> 0 scale, 1 -> 0 opacity
+          const phase4Progress = Math.min(
+            1,
+            Math.max(0, (elapsed - phase4Start) / PHASE4_DURATION)
+          );
+          scale = 1 + (0 - 1) * phase4Progress;
+          opacity = 1 + (0 - 1) * phase4Progress;
+        } else {
+          // After all phases but before durationSec ends - stay at 0
+          scale = 0;
+          opacity = 0;
         }
-        const multiplierEl = multiplierRefs.current[index];
-        if (multiplierEl) {
-          multiplierEl.style.transform = `translate(-50%, -50%) scale(${scale})`;
-          multiplierEl.style.opacity = `${opacity}`;
-        }
-        // Reset peak tracking for next animation cycle
-        const maxGlowScaleRef = maxGlowScaleRefs.current[index];
-        if (maxGlowScaleRef) {
-          maxGlowScaleRef.maxScale = 1;
-          maxGlowScaleRef.peakTime = null;
-          maxGlowScaleRef.hasReachedPeak = false;
-          maxGlowScaleRef.previousScale = 1;
-          maxGlowScaleRef.decreasingCount = 0;
-        }
-        return;
-      }
 
-      const multiplierEl = multiplierRefs.current[index];
-      if (multiplierEl) {
+        // Update DOM directly for GPU acceleration
         multiplierEl.style.transform = `translate(-50%, -50%) scale(${scale})`;
         multiplierEl.style.opacity = `${opacity}`;
-      }
-
-      animRef.animationFrame = requestAnimationFrame(
-        createMultiplierAnimation(index)
-      );
-    };
-  }, []);
+      });
+    },
+    [config]
+  );
 
   const getGlowIntensityHandler = useCallback(
     (index) => {
@@ -571,113 +533,6 @@ export default function WebGLPage() {
           const element = betspotRefsStorage.current[index];
           if (element) {
             applyGlowToElement(element, intensities);
-          }
-
-          // Track max glowScale for syncing multiplier animation
-          const glowScale = intensities?.glowScale || 1;
-          const maxGlowScaleRef = maxGlowScaleRefs.current[index];
-
-          // Debug: Log glowScale values
-          if (index === 0) {
-            console.log(
-              `[BetMultiplier ${index}] glowScale:`,
-              glowScale,
-              "maxScale:",
-              maxGlowScaleRef.maxScale,
-              "hasReachedPeak:",
-              maxGlowScaleRef.hasReachedPeak,
-              "decreasingCount:",
-              maxGlowScaleRef.decreasingCount
-            );
-          }
-
-          // Check if glowScale is increasing (tracking the maximum)
-          if (glowScale > maxGlowScaleRef.maxScale) {
-            maxGlowScaleRef.maxScale = glowScale;
-            maxGlowScaleRef.decreasingCount = 0; // Reset decreasing count when scale increases
-            maxGlowScaleRef.previousScale = glowScale;
-          } else if (glowScale < maxGlowScaleRef.previousScale) {
-            // Scale is decreasing - increment counter
-            maxGlowScaleRef.decreasingCount++;
-            maxGlowScaleRef.previousScale = glowScale;
-
-            // Peak detected when scale has been decreasing for a few frames (2-3 frames)
-            // This means we've passed the maximum
-            if (
-              !maxGlowScaleRef.hasReachedPeak &&
-              maxGlowScaleRef.decreasingCount >= 2 &&
-              maxGlowScaleRef.maxScale > 1.0
-            ) {
-              console.log(
-                `[BetMultiplier ${index}] PEAK DETECTED! maxScale:`,
-                maxGlowScaleRef.maxScale,
-                "currentScale:",
-                glowScale,
-                "decreasingCount:",
-                maxGlowScaleRef.decreasingCount
-              );
-              // Use the time when we reached maxScale (a few frames back)
-              maxGlowScaleRef.peakTime =
-                performance.now() - maxGlowScaleRef.decreasingCount * 16; // Approximate frame time
-              maxGlowScaleRef.hasReachedPeak = true;
-
-              // Sync multiplier animation to start when BetSpot reaches max scale
-              const animRef = multiplierAnimationRefs.current[index];
-              // Use refs to get current values (avoids closure issues)
-              const currentIsPlaying = isPlayingRef.current[index];
-              const currentSelected = selectedBetspotsRef.current[index];
-
-              console.log(
-                `[BetMultiplier ${index}] Checking animation start:`,
-                {
-                  animRef: !!animRef,
-                  isAnimating: animRef?.isAnimating,
-                  isPlaying: currentIsPlaying,
-                  selectedBetspots: currentSelected,
-                  glowScaleChanging: glowScale > 1.0, // If glowScale > 1, animation is clearly running
-                }
-              );
-
-              // Start animation if conditions are met OR if glowScale is increasing (animation is running)
-              // If glowScale > 1.0, the BetSpot animation is clearly active, so start multiplier animation
-              const shouldStart =
-                (currentIsPlaying && currentSelected) || glowScale > 1.0;
-
-              if (animRef && !animRef.isAnimating && shouldStart) {
-                console.log(
-                  `[BetMultiplier ${index}] STARTING ANIMATION via peak detection`
-                );
-                // Clear fallback timeout if it exists
-                if (animRef.fallbackTimeout) {
-                  clearTimeout(animRef.fallbackTimeout);
-                  animRef.fallbackTimeout = null;
-                }
-
-                animRef.isAnimating = true;
-                animRef.startTime = maxGlowScaleRef.peakTime;
-                const multiplierEl = multiplierRefs.current[index];
-                console.log(
-                  `[BetMultiplier ${index}] multiplierEl:`,
-                  !!multiplierEl
-                );
-                if (multiplierEl) {
-                  multiplierEl.style.transform =
-                    "translate(-50%, -50%) scale(0)";
-                  multiplierEl.style.opacity = "0";
-                }
-                // Start the animation loop using the shared function
-                animRef.animationFrame = requestAnimationFrame(
-                  createMultiplierAnimation(index)
-                );
-                console.log(
-                  `[BetMultiplier ${index}] Animation frame scheduled`
-                );
-              } else {
-                console.log(
-                  `[BetMultiplier ${index}] Animation NOT started - conditions not met`
-                );
-              }
-            }
           }
 
           // Also queue for state update (for tracking purposes)
@@ -695,7 +550,7 @@ export default function WebGLPage() {
       }
       return glowIntensityHandlersRef.current[index];
     },
-    [flushGlowIntensityUpdates, applyGlowToElement, createMultiplierAnimation]
+    [flushGlowIntensityUpdates, applyGlowToElement]
   );
 
   const handlePlayPause = () => {
@@ -723,133 +578,26 @@ export default function WebGLPage() {
     [isPlaying, selectedBetspots]
   );
 
-  // Reset peak tracking when animation stops or restarts
+  // Reset multiplier animations when animation stops
   useEffect(() => {
-    console.log(
-      "[BetMultiplier] useEffect triggered - isPlaying:",
-      isPlaying,
-      "selectedBetspots:",
-      selectedBetspots
-    );
     isPlaying.forEach((playing, index) => {
       const shouldAnimate = playing && selectedBetspots[index];
-      const maxGlowScaleRef = maxGlowScaleRefs.current[index];
-      const animRef = multiplierAnimationRefs.current[index];
-
-      if (index === 0) {
-        console.log(
-          `[BetMultiplier ${index}] shouldAnimate:`,
-          shouldAnimate,
-          "playing:",
-          playing,
-          "selected:",
-          selectedBetspots[index]
-        );
-      }
-
       if (!shouldAnimate) {
-        // Reset peak tracking when animation stops
-        if (maxGlowScaleRef) {
-          maxGlowScaleRef.maxScale = 1;
-          maxGlowScaleRef.peakTime = null;
-          maxGlowScaleRef.hasReachedPeak = false;
-          maxGlowScaleRef.previousScale = 1;
-          maxGlowScaleRef.decreasingCount = 0;
-        }
-        // Stop multiplier animation
-        if (animRef?.isAnimating) {
-          animRef.isAnimating = false;
-          animRef.startTime = null;
-          if (animRef.animationFrame) {
-            cancelAnimationFrame(animRef.animationFrame);
-            animRef.animationFrame = null;
-          }
-          if (animRef.fallbackTimeout) {
-            clearTimeout(animRef.fallbackTimeout);
-            animRef.fallbackTimeout = null;
-          }
-          const multiplierEl = multiplierRefs.current[index];
-          if (multiplierEl) {
-            multiplierEl.style.transform = "translate(-50%, -50%) scale(0)";
-            multiplierEl.style.opacity = "0";
-          }
-        }
-      } else {
-        // Reset peak tracking when animation starts (for new cycle)
-        if (maxGlowScaleRef && !animRef?.isAnimating) {
-          console.log(
-            `[BetMultiplier ${index}] Resetting peak tracking for new cycle`
-          );
-          maxGlowScaleRef.maxScale = 1;
-          maxGlowScaleRef.peakTime = null;
-          maxGlowScaleRef.hasReachedPeak = false;
-          maxGlowScaleRef.previousScale = 1;
-          maxGlowScaleRef.decreasingCount = 0;
-
-          // Fallback: Start animation after a delay if peak detection doesn't trigger
-          // This ensures the animation runs even if glowScale tracking has issues
-          console.log(
-            `[BetMultiplier ${index}] Setting up fallback timeout (800ms)`
-          );
-          const fallbackTimeout = setTimeout(() => {
-            console.log(`[BetMultiplier ${index}] Fallback timeout triggered`, {
-              isAnimating: animRef.isAnimating,
-              hasReachedPeak: maxGlowScaleRef.hasReachedPeak,
-            });
-            if (!animRef.isAnimating && !maxGlowScaleRef.hasReachedPeak) {
-              console.log(
-                `[BetMultiplier ${index}] STARTING ANIMATION via fallback`
-              );
-              // Start animation as fallback after 800ms (close to when peak should occur)
-              animRef.isAnimating = true;
-              animRef.startTime = performance.now();
-              const multiplierEl = multiplierRefs.current[index];
-              console.log(
-                `[BetMultiplier ${index}] Fallback - multiplierEl:`,
-                !!multiplierEl
-              );
-              if (multiplierEl) {
-                multiplierEl.style.transform = "translate(-50%, -50%) scale(0)";
-                multiplierEl.style.opacity = "0";
-              }
-              animRef.animationFrame = requestAnimationFrame(
-                createMultiplierAnimation(index)
-              );
-              console.log(
-                `[BetMultiplier ${index}] Fallback - Animation frame scheduled`
-              );
-            } else {
-              console.log(
-                `[BetMultiplier ${index}] Fallback - Animation already started or peak reached`
-              );
+        // Reset all multipliers when animation stops
+        const multiplierElements = multiplierRefs.current[index];
+        if (multiplierElements) {
+          multiplierElements.forEach((multiplierEl) => {
+            if (multiplierEl) {
+              multiplierEl.style.transform = "translate(-50%, -50%) scale(0)";
+              multiplierEl.style.opacity = "0";
             }
-          }, 800);
-
-          // Store timeout for cleanup
-          if (!animRef.fallbackTimeout) {
-            animRef.fallbackTimeout = fallbackTimeout;
-          }
-        } else if (animRef?.fallbackTimeout) {
-          // Clear fallback if animation already started via peak detection
-          console.log(
-            `[BetMultiplier ${index}] Clearing fallback timeout - animation already started`
-          );
-          clearTimeout(animRef.fallbackTimeout);
-          animRef.fallbackTimeout = null;
+          });
         }
+        // Reset current time
+        currentTimeSecRefs.current[index] = 0;
       }
     });
-
-    // Cleanup timeouts on unmount
-    return () => {
-      multiplierAnimationRefs.current.forEach((animRef) => {
-        if (animRef?.fallbackTimeout) {
-          clearTimeout(animRef.fallbackTimeout);
-          animRef.fallbackTimeout = null;
-        }
-      });
-    };
-  }, [isPlaying, selectedBetspots, createMultiplierAnimation]);
+  }, [isPlaying, selectedBetspots]);
 
   // Cleanup glow intensity update timeout on unmount
   useEffect(() => {
@@ -877,18 +625,21 @@ export default function WebGLPage() {
           >
             <MemoizedBetSpot ref={getAnchorRefCallback(index)} />
             <Chip />
-            <MemoizedBetMultiplier
-              ref={(el) => {
-                multiplierRefs.current[index] = el;
-                if (index === 0) {
-                  console.log(
-                    `[BetMultiplier ${index}] Ref callback - element:`,
-                    !!el,
-                    el
-                  );
-                }
-              }}
-            />
+            {/* Render multiple multipliers based on config */}
+            {config.paths
+              ?.filter((p) => p.type === "multiplier" && p.enabled !== false)
+              .map((multiplierPath, pathIndex) => (
+                <MemoizedBetMultiplier
+                  key={`multiplier-${index}-${multiplierPath.id || pathIndex}`}
+                  text={multiplierPath.text || "50x"}
+                  ref={(el) => {
+                    if (!multiplierRefs.current[index]) {
+                      multiplierRefs.current[index] = [];
+                    }
+                    multiplierRefs.current[index][pathIndex] = el;
+                  }}
+                />
+              ))}
             {anchorEls[index] && (
               <MemoizedGlowAnimationWebGL
                 anchorEl={anchorEls[index]}
@@ -896,6 +647,10 @@ export default function WebGLPage() {
                 isPlaying={isPlaying[index] && selectedBetspots[index]}
                 onAnimationComplete={() => handleAnimationComplete(index)}
                 onGlowIntensityChange={getGlowIntensityHandler(index)}
+                onTimeUpdate={(currentTimeSec) => {
+                  currentTimeSecRefs.current[index] = currentTimeSec;
+                  updateMultiplierAnimations(index, currentTimeSec);
+                }}
               />
             )}
           </div>

@@ -1,6 +1,6 @@
 import { forwardRef } from "react";
 
-const BetMultiplier = forwardRef(function BetMultiplier(props, ref) {
+const BetMultiplier = forwardRef(function BetMultiplier({ text = "50x" }, ref) {
   return (
     <div
       ref={ref}
@@ -29,7 +29,7 @@ const BetMultiplier = forwardRef(function BetMultiplier(props, ref) {
             zIndex: 1,
           }}
         >
-          50x
+          {text}
         </span>
         {/* Gradient fill layer - on top */}
         <span
@@ -45,7 +45,7 @@ const BetMultiplier = forwardRef(function BetMultiplier(props, ref) {
             zIndex: 2,
           }}
         >
-          50x
+          {text}
         </span>
       </span>
     </div>
