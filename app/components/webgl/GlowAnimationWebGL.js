@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import useFps from "../../hooks/useFps";
+// Removed useFps hook to eliminate extra RAF loops per instance - using constant 60 FPS instead
 import * as circleAnimation from "../canvas2d/animations/circle";
 import * as lineAnimation from "../canvas2d/animations/line";
 import * as sparkAnimation from "../canvas2d/animations/spark";
+import * as spinAnimation from "../canvas2d/animations/spin";
 import { DEFAULT_CONFIG, EPSILON, MAX_DT_SEC } from "../canvas2d/constants";
-import { CPUMonitor, drawCPUUsage } from "../canvas2d/cpuMonitor";
+// Removed CPU monitoring to reduce overhead
 import {
   applyEasingCircle,
   applyEasingLine,
@@ -36,9 +37,8 @@ export default function GlowAnimationWebGL({
   const animationIdRef = useRef(null);
   const lastTsRef = useRef(null);
   const accumulatedSecRef = useRef(0);
-  const cpuMonitorRef = useRef(new CPUMonitor(60));
-  const fps = useFps({ sampleSize: 60, continuous: false });
-  const fpsRef = useRef(fps);
+  // Removed CPU monitoring and useFps hook to reduce overhead
+  // Using constant 60 FPS assumption for frame timing
   const anchorRectRef = useRef(null);
   const anchorCenterRef = useRef([0, 0]);
   const buffersRef = useRef({
@@ -64,12 +64,26 @@ export default function GlowAnimationWebGL({
   const pointCountRef = useRef(0);
   // Path metrics are per-instance (depend on anchorEl position)
   const pathMetricsRef = useRef(new Map());
+  // Reusable Float32Array buffers to avoid allocations every frame
+  const bufferRefs = useRef({
+    positions: null,
+    radii: null,
+    sparkColors: null,
+    glowColors: null,
+    alphas: null,
+    glowRadii: null,
+    maxPoints: 0,
+  });
+  // Store shader references for cleanup
+  const shadersRef = useRef({ vertex: null, fragment: null });
   // Track previous glow intensities to avoid unnecessary callbacks
   const prevGlowIntensitiesRef = useRef({
     chipGlowIntensity: 0,
     perimeterGlowIntensity: 0,
     glowScale: 1.0,
   });
+  // Track previous border opacity for spin animation
+  const prevBorderOpacityRef = useRef(0);
   // Track if animation has actually started to avoid calling callback during initialization
   const hasAnimationStartedRef = useRef(false);
   // Store callback in ref to avoid adding it to dependency array (prevents animation reset)
@@ -86,9 +100,7 @@ export default function GlowAnimationWebGL({
     onAnimationCompleteRef.current = onAnimationComplete;
   }, [onGlowIntensityChange, config, onAnimationComplete]);
 
-  useEffect(() => {
-    fpsRef.current = fps;
-  }, [fps]);
+  // Removed useEffect for fps - using constant 60 FPS
 
   useEffect(() => {
     if (anchorEl?.getBoundingClientRect) {
@@ -120,6 +132,9 @@ export default function GlowAnimationWebGL({
 
     glRef.current = gl;
 
+    // Capture refs for cleanup to satisfy linter
+    const pathMetricsForCleanup = pathMetricsRef.current;
+
     try {
       const vertexShader = createShader(
         gl,
@@ -131,8 +146,17 @@ export default function GlowAnimationWebGL({
         gl.FRAGMENT_SHADER,
         fragmentShaderSource
       );
+      // Store shaders for cleanup
+      shadersRef.current.vertex = vertexShader;
+      shadersRef.current.fragment = fragmentShader;
       const program = createProgram(gl, vertexShader, fragmentShader);
       programRef.current = program;
+
+      // Capture values for cleanup function
+      const vertexShaderForCleanup = vertexShader;
+      const fragmentShaderForCleanup = fragmentShader;
+      const programForCleanup = program;
+      const buffersForCleanup = buffersRef.current;
 
       gl.useProgram(program);
 
@@ -219,14 +243,11 @@ export default function GlowAnimationWebGL({
       };
 
       resizeCanvas();
-      window.addEventListener("resize", () => {
+      // Store resize handler to properly remove it later
+      const handleResize = () => {
         resizeCanvas();
-        const overlayCanvas = document.getElementById("webgl-overlay");
-        if (overlayCanvas) {
-          overlayCanvas.width = window.innerWidth;
-          overlayCanvas.height = window.innerHeight;
-        }
-      });
+      };
+      window.addEventListener("resize", handleResize);
 
       const precalculatePathMetrics = () => {
         const cfg = getSharedConfigCache(configRef.current, DEFAULT_CONFIG);
@@ -238,8 +259,28 @@ export default function GlowAnimationWebGL({
           const isCirclePath =
             p.type === "circle" || p.circleRadius !== undefined;
           const isLinePath = p.type === "line";
+          const isSpinPath = p.type === "spin";
 
-          if (isLinePath) {
+          if (isSpinPath) {
+            const prev = pathMetricsRef.current.get(p.id);
+            if (
+              !prev ||
+              prev.centerX !== centerX ||
+              prev.centerY !== centerY ||
+              prev.isSpin !== true ||
+              prev.rectWidth !== rect?.width ||
+              prev.rectHeight !== rect?.height
+            ) {
+              const metrics = spinAnimation.computeSpinMetrics(
+                p,
+                cfg,
+                rect,
+                centerX,
+                centerY
+              );
+              pathMetricsRef.current.set(p.id, metrics);
+            }
+          } else if (isLinePath) {
             const startPoint = p.startPoint ?? 0;
             const direction = p.direction ?? cfg.direction ?? "clockwise";
 
@@ -346,7 +387,7 @@ export default function GlowAnimationWebGL({
       precalculatePathMetrics();
 
       const animate = (ts) => {
-        cpuMonitorRef.current.startFrame();
+        // Removed CPU monitoring to reduce overhead
 
         if (!isPlaying) {
           animationIdRef.current = null;
@@ -359,6 +400,11 @@ export default function GlowAnimationWebGL({
             perimeterGlowIntensity: 0,
             glowScale: 1.0,
           };
+          // Reset border when animation stops
+          if (anchorEl && prevBorderOpacityRef.current > 0) {
+            prevBorderOpacityRef.current = 0;
+            anchorEl.style.border = "none";
+          }
           return;
         }
 
@@ -367,9 +413,7 @@ export default function GlowAnimationWebGL({
         lastTsRef.current = ts;
         accumulatedSecRef.current += dtSec;
 
-        const currentFps = fpsRef.current;
-        const frameBudget = 1000 / Math.max(currentFps, 1);
-        cpuMonitorRef.current.setFrameBudget(frameBudget);
+        // Removed CPU monitoring frame budget calculation
 
         const currentTimeSec = accumulatedSecRef.current;
         const rect = anchorRectRef.current;
@@ -417,6 +461,58 @@ export default function GlowAnimationWebGL({
           }
         }
 
+        // Handle border for spin animation
+        const spinPath = activePaths.find((p) => p.type === "spin");
+        let borderOpacity = 0;
+        if (spinPath && anchorEl) {
+          const delayRaw = spinPath.delay || 380;
+          const delaySec = delayToSeconds(delayRaw);
+          const elapsed = Math.max(0, currentTimeSec - delaySec);
+          const durationSec = (spinPath.animationTimeMs ?? 14500) / 1000.0;
+          const fadeInMs = 300;
+          const fadeOutMs = 300;
+          const fadeInSec = fadeInMs / 1000.0;
+          const fadeOutSec = fadeOutMs / 1000.0;
+
+          if (elapsed > 0 && elapsed < durationSec) {
+            // Fade in
+            if (elapsed < fadeInSec) {
+              borderOpacity = elapsed / fadeInSec;
+            }
+            // Full opacity
+            else if (elapsed < durationSec - fadeOutSec) {
+              borderOpacity = 1.0;
+            }
+            // Fade out
+            else {
+              const timeUntilEnd = durationSec - elapsed;
+              borderOpacity = timeUntilEnd / fadeOutSec;
+            }
+          }
+
+          // Apply border to element if opacity changed
+          if (Math.abs(prevBorderOpacityRef.current - borderOpacity) > 0.001) {
+            prevBorderOpacityRef.current = borderOpacity;
+            const borderColor = spinPath.borderColor ?? "#eaa13b";
+            const borderWidth = spinPath.borderWidth ?? 2;
+            const borderRadius = spinPath.borderRadius ?? 5;
+
+            if (borderOpacity > 0) {
+              const r = Number.parseInt(borderColor.slice(1, 3), 16);
+              const g = Number.parseInt(borderColor.slice(3, 5), 16);
+              const b = Number.parseInt(borderColor.slice(5, 7), 16);
+              anchorEl.style.border = `${borderWidth}px solid rgba(${r}, ${g}, ${b}, ${borderOpacity})`;
+              anchorEl.style.borderRadius = `${borderRadius}px`;
+            } else {
+              anchorEl.style.border = "none";
+            }
+          }
+        } else if (!spinPath && anchorEl && prevBorderOpacityRef.current > 0) {
+          // Remove border when spin animation is not active
+          prevBorderOpacityRef.current = 0;
+          anchorEl.style.border = "none";
+        }
+
         // Notify parent of glow intensity changes only when values actually change and animation is playing
         // Only update if animation is actively playing and has started to avoid infinite loops
         const callback = onGlowIntensityChangeRef.current;
@@ -457,6 +553,7 @@ export default function GlowAnimationWebGL({
           const isCirclePathP =
             p.type === "circle" || p.circleRadius !== undefined;
           const isLinePathP = p.type === "line";
+          const isSpinPathP = p.type === "spin";
           const isObjectGlowP = p.type === "objectGlow";
 
           // Handle objectGlow separately - no WebGL points, just CSS glow
@@ -477,6 +574,72 @@ export default function GlowAnimationWebGL({
 
             allComplete = false;
             // Don't generate WebGL points - glow is handled via CSS in BetSpot
+            continue;
+          }
+
+          // Handle spin animation separately - uses linear time progression
+          if (isSpinPathP) {
+            const delayRaw = p.delay || 380;
+            const delaySec = delayToSeconds(delayRaw);
+            const elapsed = Math.max(0, currentTimeSec - delaySec);
+            const durationSec = (p.animationTimeMs ?? 14500) / 1000.0;
+            const metrics = pathMetricsRef.current.get(p.id);
+
+            if (!metrics) {
+              allComplete = false;
+              continue;
+            }
+
+            const normalizedTime = Math.min(
+              1.0,
+              Math.max(0.0, elapsed / Math.max(durationSec, EPSILON))
+            );
+
+            if (elapsed <= 0 || normalizedTime <= 0) {
+              allComplete = false;
+              continue;
+            }
+
+            if (normalizedTime >= 1.0) {
+              continue; // Animation complete
+            }
+
+            allComplete = false;
+
+            const headRadius = p.headRadius ?? cfg.headRadius ?? 10;
+            const tailRadius = p.tailRadius ?? cfg.tailRadius ?? 2;
+            const glowColor = p.glowColor ?? cfg.glowColor ?? "#fff391";
+            const glowRadius = p.glowRadius ?? cfg.glowRadius ?? 30;
+
+            // Cache color conversions (shared across instances)
+            const colorKey = `spin-${glowColor}`;
+            const { glowColorRgb } = getSharedColorCache(colorKey, () => {
+              const glowColorRgbRaw = hexToRgb(glowColor);
+              return {
+                sparkColorRgb: [1, 1, 1], // Not used for spin
+                glowColorRgb: [
+                  glowColorRgbRaw[0] / 255,
+                  glowColorRgbRaw[1] / 255,
+                  glowColorRgbRaw[2] / 255,
+                ],
+              };
+            });
+
+            // Render spin animation with linear time (no easing, no fade)
+            spinAnimation.renderSpinToPoints(
+              points,
+              p,
+              cfg,
+              metrics,
+              normalizedTime,
+              1.0, // Full alpha for spin
+              headRadius,
+              tailRadius,
+              [1, 1, 1], // Not used
+              glowColorRgb,
+              glowRadius
+            );
+
             continue;
           }
 
@@ -699,12 +862,28 @@ export default function GlowAnimationWebGL({
 
         pointCountRef.current = points.length;
 
-        const positions = new Float32Array(points.length * 2);
-        const radii = new Float32Array(points.length);
-        const sparkColors = new Float32Array(points.length * 3);
-        const glowColors = new Float32Array(points.length * 3);
-        const alphas = new Float32Array(points.length);
-        const glowRadii = new Float32Array(points.length);
+        // Reuse buffers to avoid allocations every frame
+        const buffers = bufferRefs.current;
+        const requiredSize = points.length;
+
+        // Resize buffers only if needed
+        if (!buffers.positions || buffers.maxPoints < requiredSize) {
+          buffers.maxPoints =
+            Math.max(requiredSize, buffers.maxPoints || 0) * 2; // Allocate 2x to reduce reallocations
+          buffers.positions = new Float32Array(buffers.maxPoints * 2);
+          buffers.radii = new Float32Array(buffers.maxPoints);
+          buffers.sparkColors = new Float32Array(buffers.maxPoints * 3);
+          buffers.glowColors = new Float32Array(buffers.maxPoints * 3);
+          buffers.alphas = new Float32Array(buffers.maxPoints);
+          buffers.glowRadii = new Float32Array(buffers.maxPoints);
+        }
+
+        const positions = buffers.positions;
+        const radii = buffers.radii;
+        const sparkColors = buffers.sparkColors;
+        const glowColors = buffers.glowColors;
+        const alphas = buffers.alphas;
+        const glowRadii = buffers.glowRadii;
 
         for (let i = 0; i < points.length; i++) {
           const p = points[i];
@@ -817,24 +996,9 @@ export default function GlowAnimationWebGL({
 
         gl.drawArrays(gl.POINTS, 0, points.length);
 
-        const frameTime = cpuMonitorRef.current.endFrame();
-        const cpuUsage = cpuMonitorRef.current.getCPUUsage();
-
-        const overlayCanvas = document.getElementById("webgl-overlay");
-        if (overlayCanvas) {
-          const ctx2d = overlayCanvas.getContext("2d");
-          if (ctx2d) {
-            ctx2d.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-            drawCPUUsage(
-              ctx2d,
-              cpuUsage,
-              frameTime,
-              fpsRef.current,
-              overlayCanvas.width,
-              0
-            );
-          }
-        }
+        // Removed overlay canvas CPU monitoring to reduce DOM nodes and event listeners
+        // const frameTime = cpuMonitorRef.current.endFrame();
+        // const cpuUsage = cpuMonitorRef.current.getCPUUsage();
 
         animationIdRef.current = requestAnimationFrame(animate);
       };
@@ -863,6 +1027,11 @@ export default function GlowAnimationWebGL({
           chipGlowIntensity: 0,
           perimeterGlowIntensity: 0,
         };
+        // Reset border when animation stops
+        if (anchorEl && prevBorderOpacityRef.current > 0) {
+          prevBorderOpacityRef.current = 0;
+          anchorEl.style.border = "none";
+        }
         const callback = onGlowIntensityChangeRef.current;
         if (callback && wasStarted) {
           callback({
@@ -874,11 +1043,67 @@ export default function GlowAnimationWebGL({
       }
 
       return () => {
+        // Cleanup animation frame
         if (animationIdRef.current) {
           cancelAnimationFrame(animationIdRef.current);
           animationIdRef.current = null;
         }
-        window.removeEventListener("resize", resizeCanvas);
+
+        // Remove resize listener properly
+        window.removeEventListener("resize", handleResize);
+
+        // Cleanup WebGL resources
+        const gl = glRef.current;
+        if (gl) {
+          // Delete buffers (using captured values)
+          if (buffersForCleanup.position) {
+            gl.deleteBuffer(buffersForCleanup.position);
+          }
+          if (buffersForCleanup.radius) {
+            gl.deleteBuffer(buffersForCleanup.radius);
+          }
+          if (buffersForCleanup.sparkColor) {
+            gl.deleteBuffer(buffersForCleanup.sparkColor);
+          }
+          if (buffersForCleanup.glowColor) {
+            gl.deleteBuffer(buffersForCleanup.glowColor);
+          }
+          if (buffersForCleanup.alpha) {
+            gl.deleteBuffer(buffersForCleanup.alpha);
+          }
+          if (buffersForCleanup.glowRadius) {
+            gl.deleteBuffer(buffersForCleanup.glowRadius);
+          }
+
+          // Delete shaders (using captured values)
+          if (vertexShaderForCleanup) {
+            gl.deleteShader(vertexShaderForCleanup);
+          }
+          if (fragmentShaderForCleanup) {
+            gl.deleteShader(fragmentShaderForCleanup);
+          }
+
+          // Delete program (using captured value)
+          if (programForCleanup) {
+            gl.deleteProgram(programForCleanup);
+          }
+        }
+
+        // Clear path metrics to free memory (using captured ref)
+        if (pathMetricsForCleanup) {
+          pathMetricsForCleanup.clear();
+        }
+
+        // Clear buffer refs
+        bufferRefs.current = {
+          positions: null,
+          radii: null,
+          sparkColors: null,
+          glowColors: null,
+          alphas: null,
+          glowRadii: null,
+          maxPoints: 0,
+        };
       };
     } catch (error) {
       console.error("WebGL initialization error:", error);
