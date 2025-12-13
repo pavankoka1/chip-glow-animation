@@ -455,8 +455,8 @@ export default function GlowAnimationWebGL({
             if (normalizedTime <= firstHalfDuration) {
               // First 500ms: glow increases 0-100%, scale 1.0-1.1
               const progress = normalizedTime / firstHalfDuration;
-              chipGlowIntensity = progress; // 0 to 1
-              perimeterGlowIntensity = progress; // 0 to 1
+              chipGlowIntensity = 1.5 * progress; // 0 to 1
+              perimeterGlowIntensity = 1.5 * progress; // 0 to 1
               glowScale = 1.0 + 0.1 * progress; // 1.0 to 1.1
             } else {
               // Last 500ms: glow decreases 100%-0%, scale 1.1-1.0
@@ -556,8 +556,86 @@ export default function GlowAnimationWebGL({
         const animationTimeMsGlobal =
           cfg.animationTimeMs ?? DEFAULT_CONFIG.animationTimeMs;
 
-        const points = [];
+        // Separate points into two arrays: spin (rendered first, appears behind) and others (rendered last, appears on top)
+        const spinPoints = [];
+        const otherPoints = [];
 
+        // First pass: render spin animations (will appear behind)
+        for (const p of activePaths) {
+          const isSpinPathP = p.type === "spin";
+          if (!isSpinPathP) continue; // Skip non-spin in first pass
+
+          const delayRaw = p.delay || 380;
+          const delaySec = delayToSeconds(delayRaw);
+          const elapsed = Math.max(0, currentTimeSec - delaySec);
+          const durationSec = (p.animationTimeMs ?? 14500) / 1000.0;
+          const metrics = pathMetricsRef.current.get(p.id);
+
+          if (!metrics) {
+            allComplete = false;
+            continue;
+          }
+
+          const normalizedTime = Math.min(
+            1.0,
+            Math.max(0.0, elapsed / Math.max(durationSec, EPSILON))
+          );
+
+          if (elapsed <= 0 || normalizedTime <= 0) {
+            allComplete = false;
+            continue;
+          }
+
+          if (normalizedTime >= 1.0) {
+            continue; // Animation complete
+          }
+
+          allComplete = false;
+
+          const headRadius = p.headRadius ?? cfg.headRadius ?? 10;
+          const tailRadius = p.tailRadius ?? cfg.tailRadius ?? 2;
+          const glowColor = p.glowColor ?? cfg.glowColor ?? "#fff391";
+          const glowRadius = p.glowRadius ?? cfg.glowRadius ?? 30;
+
+          // Cache color conversions (shared across instances)
+          const colorKey = `spin-${glowColor}`;
+          const { glowColorRgb } = getSharedColorCache(colorKey, () => {
+            const glowColorRgbRaw = hexToRgb(glowColor);
+            return {
+              sparkColorRgb: [1, 1, 1], // Not used for spin
+              glowColorRgb: [
+                glowColorRgbRaw[0] / 255,
+                glowColorRgbRaw[1] / 255,
+                glowColorRgbRaw[2] / 255,
+              ],
+            };
+          });
+
+          // Scale metrics by current glowScale to match BetSpot scaling
+          // The BetSpot is scaled via CSS transform, so we need to scale the spin path accordingly
+          const scaledMetrics = {
+            ...metrics,
+            halfWidth: metrics.halfWidth * glowScale,
+            halfHeight: metrics.halfHeight * glowScale,
+          };
+
+          // Render spin animation with linear time (no easing, no fade)
+          spinAnimation.renderSpinToPoints(
+            spinPoints,
+            p,
+            cfg,
+            scaledMetrics,
+            normalizedTime,
+            1.0, // Full alpha for spin
+            headRadius,
+            tailRadius,
+            [1, 1, 1], // Not used
+            glowColorRgb,
+            glowRadius
+          );
+        }
+
+        // Second pass: render other animations (spark, line, circle) - will appear on top
         for (const p of activePaths) {
           const isCirclePathP =
             p.type === "circle" || p.circleRadius !== undefined;
@@ -565,90 +643,19 @@ export default function GlowAnimationWebGL({
           const isSpinPathP = p.type === "spin";
           const isObjectGlowP = p.type === "objectGlow";
 
-          // Handle objectGlow separately - no WebGL points, just CSS glow
-          if (isObjectGlowP) {
-            const delayRaw = p.delay || 0;
-            const delaySec = delayToSeconds(delayRaw);
-            const elapsed = Math.max(0, currentTimeSec - delaySec);
-            const durationSec = (p.animationTimeMs ?? 1000) / 1000.0;
+          // Skip spin and objectGlow in second pass (already handled in first pass or CSS)
+          if (isSpinPathP || isObjectGlowP) {
+            // Handle objectGlow completion check
+            if (isObjectGlowP) {
+              const delayRaw = p.delay || 0;
+              const delaySec = delayToSeconds(delayRaw);
+              const elapsed = Math.max(0, currentTimeSec - delaySec);
+              const durationSec = (p.animationTimeMs ?? 1000) / 1000.0;
 
-            if (elapsed <= 0) {
-              allComplete = false;
-              continue;
+              if (elapsed > 0 && elapsed < durationSec) {
+                allComplete = false;
+              }
             }
-
-            if (elapsed >= durationSec) {
-              continue; // Animation complete
-            }
-
-            allComplete = false;
-            // Don't generate WebGL points - glow is handled via CSS in BetSpot
-            continue;
-          }
-
-          // Handle spin animation separately - uses linear time progression
-          if (isSpinPathP) {
-            const delayRaw = p.delay || 380;
-            const delaySec = delayToSeconds(delayRaw);
-            const elapsed = Math.max(0, currentTimeSec - delaySec);
-            const durationSec = (p.animationTimeMs ?? 14500) / 1000.0;
-            const metrics = pathMetricsRef.current.get(p.id);
-
-            if (!metrics) {
-              allComplete = false;
-              continue;
-            }
-
-            const normalizedTime = Math.min(
-              1.0,
-              Math.max(0.0, elapsed / Math.max(durationSec, EPSILON))
-            );
-
-            if (elapsed <= 0 || normalizedTime <= 0) {
-              allComplete = false;
-              continue;
-            }
-
-            if (normalizedTime >= 1.0) {
-              continue; // Animation complete
-            }
-
-            allComplete = false;
-
-            const headRadius = p.headRadius ?? cfg.headRadius ?? 10;
-            const tailRadius = p.tailRadius ?? cfg.tailRadius ?? 2;
-            const glowColor = p.glowColor ?? cfg.glowColor ?? "#fff391";
-            const glowRadius = p.glowRadius ?? cfg.glowRadius ?? 30;
-
-            // Cache color conversions (shared across instances)
-            const colorKey = `spin-${glowColor}`;
-            const { glowColorRgb } = getSharedColorCache(colorKey, () => {
-              const glowColorRgbRaw = hexToRgb(glowColor);
-              return {
-                sparkColorRgb: [1, 1, 1], // Not used for spin
-                glowColorRgb: [
-                  glowColorRgbRaw[0] / 255,
-                  glowColorRgbRaw[1] / 255,
-                  glowColorRgbRaw[2] / 255,
-                ],
-              };
-            });
-
-            // Render spin animation with linear time (no easing, no fade)
-            spinAnimation.renderSpinToPoints(
-              points,
-              p,
-              cfg,
-              metrics,
-              normalizedTime,
-              1.0, // Full alpha for spin
-              headRadius,
-              tailRadius,
-              [1, 1, 1], // Not used
-              glowColorRgb,
-              glowRadius
-            );
-
             continue;
           }
 
@@ -812,7 +819,7 @@ export default function GlowAnimationWebGL({
           if (isLinePathP) {
             const easedTime = applyEasingLine(normalizedTime);
             lineAnimation.renderLineToPoints(
-              points,
+              otherPoints,
               p,
               cfg,
               metrics,
@@ -826,7 +833,7 @@ export default function GlowAnimationWebGL({
             );
           } else if (isCirclePathP) {
             circleAnimation.renderCircleToPoints(
-              points,
+              otherPoints,
               p,
               cfg,
               metrics,
@@ -842,7 +849,7 @@ export default function GlowAnimationWebGL({
             );
           } else {
             sparkAnimation.renderSparkToPoints(
-              points,
+              otherPoints,
               p,
               cfg,
               metrics,
@@ -859,6 +866,9 @@ export default function GlowAnimationWebGL({
             );
           }
         }
+
+        // Combine points: spin first (behind), then others (on top)
+        const points = [...spinPoints, ...otherPoints];
 
         if (allComplete && activePaths.length > 0) {
           animationIdRef.current = null;

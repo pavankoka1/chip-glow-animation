@@ -32,6 +32,7 @@ const DEFAULT_BETSPOT_COUNT = 1;
 
 // Calculate optimal grid layout (rows and columns as equal as possible)
 function calculateGridLayout(count) {
+  return { cols: count, rows: 1 };
   if (count <= 0) return { cols: 1, rows: 1 };
   if (count === 1) return { cols: 1, rows: 1 };
 
@@ -179,11 +180,50 @@ export default function WebGLPage() {
         delay: 780,
         animationTimeMs: 1930, // 130 + 250 + 1250 + 300
         enabled: true,
-        phase1Duration: 130,
-        phase2Duration: 250,
-        phase3Duration: 1250,
-        phase4Duration: 300,
+        phase1Duration: 210,
+        phase2Duration: 450,
+        phase3Duration: 850,
+        phase4Duration: 500,
         maxScale: 1.2,
+        text: "50x",
+      },
+      {
+        id: 11,
+        type: "multiplier",
+        delay: 3510,
+        animationTimeMs: 3830, // 130 + 250 + 1250 + 300
+        enabled: true,
+        phase1Duration: 500,
+        phase2Duration: 630,
+        phase3Duration: 2200,
+        phase4Duration: 500,
+        maxScale: 1,
+        text: "50x",
+      },
+      {
+        id: 12,
+        type: "multiplier",
+        delay: 7850,
+        animationTimeMs: 4120, // 130 + 250 + 1250 + 300
+        enabled: true,
+        phase1Duration: 500,
+        phase2Duration: 370,
+        phase3Duration: 2750,
+        phase4Duration: 500,
+        maxScale: 1,
+        text: "50x",
+      },
+      {
+        id: 13,
+        type: "multiplier",
+        delay: 12560,
+        animationTimeMs: 2300, // 130 + 250 + 1250 + 300
+        enabled: true,
+        phase1Duration: 500,
+        phase2Duration: 150,
+        phase3Duration: 1100,
+        phase4Duration: 550,
+        maxScale: 1,
         text: "50x",
       },
     ],
