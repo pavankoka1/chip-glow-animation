@@ -1,3 +1,7 @@
+/**
+ * WebGL shader source code
+ */
+
 export const vertexShaderSource = `
   attribute vec2 a_position;
   attribute float a_radius;

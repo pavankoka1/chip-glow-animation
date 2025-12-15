@@ -27,13 +27,13 @@ const MemoizedGlowAnimationWebGL = memo(
   }
 );
 
-const MAX_BETSPOT_COUNT = 10;
+const MAX_BETSPOT_COUNT = 50;
 const DEFAULT_BETSPOT_COUNT = 1;
 
 // Calculate optimal grid layout (rows and columns as equal as possible)
 function calculateGridLayout(count) {
-  return { cols: count, rows: 1 };
-  if (count <= 0) return { cols: 1, rows: 1 };
+  return { cols: 1, rows: 1 };
+  if (count <= 0) return { cols: 5, rows: 1 };
   if (count === 1) return { cols: 1, rows: 1 };
 
   // Find the factor pair closest to a square
@@ -166,11 +166,11 @@ export default function WebGLPage() {
         delay: 380,
         animationTimeMs: 14500,
         enabled: true,
-        borderWidth: 3,
-        borderRadius: 10,
-        borderColor: "#eaa13b",
+        borderWidth: 2.7,
+        borderRadius: 7.2,
+        borderColor: "#FFE825",
         tailColor: "#eaa13b",
-        lineWidth: 2,
+        lineWidth: 0,
         headWidth: 5,
         tailWidth: 4,
       },
@@ -221,8 +221,8 @@ export default function WebGLPage() {
         enabled: true,
         phase1Duration: 500,
         phase2Duration: 150,
-        phase3Duration: 1100,
-        phase4Duration: 550,
+        phase3Duration: 1200,
+        phase4Duration: 500,
         maxScale: 1,
         text: "50x",
       },
@@ -237,6 +237,23 @@ export default function WebGLPage() {
     () => calculateGridLayout(betspotCount),
     [betspotCount]
   );
+
+  // Select 5 random betspots to have active WebGL animations
+  // Use deterministic selection based on betspotCount to avoid Math.random during render
+  const activeBetspotIndices = useMemo(() => {
+    const indices = Array.from({ length: betspotCount }, (_, i) => i);
+    // Deterministic shuffle using betspotCount as seed for consistent results
+    // This avoids calling Math.random during render
+    const seed = betspotCount * 7919; // Prime number for better distribution
+    for (let i = indices.length - 1; i > 0; i--) {
+      // Pseudo-random using seed (linear congruential generator)
+      const pseudoRandom = ((seed + i) * 9301 + 49297) % 233280;
+      const j = Math.floor((pseudoRandom / 233280) * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    // Take first 5 (or all if less than 5)
+    return indices.slice(0, Math.min(5, betspotCount));
+  }, [betspotCount]);
 
   // Store refs in a ref object (not accessed during render)
   const betspotRefsStorage = useRef({});
@@ -431,13 +448,21 @@ export default function WebGLPage() {
     setIsPlaying(newPlaying);
   };
 
-  const handleAnimationComplete = (betspotIndex) => {
+  const handleAnimationComplete = useCallback((betspotIndex) => {
     setIsPlaying((prev) => {
-      const newPlaying = [...prev];
-      newPlaying[betspotIndex] = false;
-      return newPlaying;
+      // Only update if this betspot was actually playing
+      if (prev[betspotIndex] === true) {
+        const newPlaying = [...prev];
+        newPlaying[betspotIndex] = false;
+        // Force a new array reference to ensure React detects the change
+        return newPlaying;
+      }
+      // Return same reference if no change to prevent unnecessary re-renders
+      return prev;
     });
-  };
+    // Force a re-render by updating a dummy state if needed
+    // The isAnyPlaying memo should recalculate automatically
+  }, []);
 
   // Create memoized handlers for each betspot to prevent infinite loops
   const glowIntensityHandlersRef = useRef({});
@@ -612,11 +637,12 @@ export default function WebGLPage() {
     }
   };
 
-  const isAnyPlaying = useMemo(
-    () =>
-      isPlaying.some((playing, index) => selectedBetspots[index] && playing),
-    [isPlaying, selectedBetspots]
-  );
+  const isAnyPlaying = useMemo(() => {
+    const result = isPlaying.some(
+      (playing, index) => selectedBetspots[index] && playing
+    );
+    return result;
+  }, [isPlaying, selectedBetspots]);
 
   // Reset multiplier animations when animation stops
   useEffect(() => {
@@ -680,12 +706,15 @@ export default function WebGLPage() {
                   }}
                 />
               ))}
-            {anchorEls[index] && (
+            {anchorEls[index] && activeBetspotIndices.includes(index) && (
               <MemoizedGlowAnimationWebGL
+                key={`glow-${index}-${isPlaying[index]}`}
                 anchorEl={anchorEls[index]}
                 config={config}
                 isPlaying={isPlaying[index] && selectedBetspots[index]}
-                onAnimationComplete={() => handleAnimationComplete(index)}
+                onAnimationComplete={() => {
+                  handleAnimationComplete(index);
+                }}
                 onGlowIntensityChange={getGlowIntensityHandler(index)}
                 onTimeUpdate={(currentTimeSec) => {
                   currentTimeSecRefs.current[index] = currentTimeSec;
@@ -735,6 +764,7 @@ export default function WebGLPage() {
           },
         }}
         title={isAnyPlaying ? "Stop Animation" : "Play Animation"}
+        disabled={false}
       >
         {isAnyPlaying ? (
           <Stop />

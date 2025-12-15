@@ -1,3 +1,15 @@
+/**
+ * WebGL utility functions
+ */
+
+/**
+ * Creates and compiles a WebGL shader
+ * @param {WebGLRenderingContext} gl - WebGL context
+ * @param {number} type - Shader type (gl.VERTEX_SHADER or gl.FRAGMENT_SHADER)
+ * @param {string} source - Shader source code
+ * @returns {WebGLShader} Compiled shader
+ * @throws {Error} If shader compilation fails
+ */
 export function createShader(gl, type, source) {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source);
@@ -12,6 +24,14 @@ export function createShader(gl, type, source) {
   return shader;
 }
 
+/**
+ * Creates and links a WebGL program
+ * @param {WebGLRenderingContext} gl - WebGL context
+ * @param {WebGLShader} vertexShader - Vertex shader
+ * @param {WebGLShader} fragmentShader - Fragment shader
+ * @returns {WebGLProgram} Linked program
+ * @throws {Error} If program linking fails
+ */
 export function createProgram(gl, vertexShader, fragmentShader) {
   const program = gl.createProgram();
   gl.attachShader(program, vertexShader);
@@ -27,19 +47,11 @@ export function createProgram(gl, vertexShader, fragmentShader) {
   return program;
 }
 
-export function hexToRgb(hex) {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? [
-        parseInt(result[1], 16) / 255,
-        parseInt(result[2], 16) / 255,
-        parseInt(result[3], 16) / 255,
-      ]
-    : [1, 1, 0];
-}
-
+/**
+ * Gets the device pixel ratio, capped at 2 for performance
+ * @returns {number} Device pixel ratio (1-2)
+ */
 export function getDevicePixelRatio() {
   if (typeof window === "undefined") return 1;
   return Math.min(window.devicePixelRatio || 1, 2);
 }
-
