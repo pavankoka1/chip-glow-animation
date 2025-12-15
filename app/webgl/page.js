@@ -63,12 +63,10 @@ export default function WebGLPage() {
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [config, setConfig] = useState({
     betspotCount: DEFAULT_BETSPOT_COUNT,
-    animationTimeMs: 1200,
     glowRadius: 5,
     ellipse: { b: 20, a: 76 },
     headRadius: 5,
     tailRadius: 1,
-    length: 80,
     sparkColor: "#f1eb9d",
     glowColor: "#fdcb3d",
     paths: [
@@ -167,12 +165,18 @@ export default function WebGLPage() {
         animationTimeMs: 14500,
         enabled: true,
         borderWidth: 2.7,
-        borderRadius: 7.2,
+        borderRadius: 6.75,
         borderColor: "#FFE825",
         tailColor: "#eaa13b",
         lineWidth: 0,
         headWidth: 5,
-        tailWidth: 4,
+        tailWidth: 2,
+        backgroundGradient: {
+          centerColor: "#834F03",
+          midColor: "#9C6004",
+          edgeColor: "#CE9404",
+          midStop: 40.8232,
+        },
       },
       {
         id: 10,
@@ -327,7 +331,16 @@ export default function WebGLPage() {
   const applyGlowToElement = useCallback((element, intensities) => {
     if (!element) return;
 
-    const glowColor = "rgba(253, 203, 61, 1)";
+    // Check if spin animation is active (has gradient background)
+    // If so, use the edge color (#CE9404) for the glow
+    const hasSpinGradient =
+      element.style.background &&
+      element.style.background.includes("radial-gradient");
+    const edgeColorRgb = hasSpinGradient
+      ? { r: 206, g: 148, b: 4 } // #CE9404
+      : { r: 253, g: 203, b: 61 }; // Default #fdcb3d
+    const glowColor = `rgba(${edgeColorRgb.r}, ${edgeColorRgb.g}, ${edgeColorRgb.b}, 1)`;
+
     const chipGlowIntensity = intensities?.chipGlowIntensity || 0;
     const perimeterGlowIntensity = intensities?.perimeterGlowIntensity || 0;
     const glowScale = intensities?.glowScale || 1;
@@ -345,12 +358,14 @@ export default function WebGLPage() {
     const hasPerimeterGlow = perimeterGlowIntensity > 0;
 
     // Apply styles directly to DOM
-    // Base chip color with glow overlay
-    element.style.backgroundColor = hasChipGlow
-      ? `rgba(${166 + (253 - 166) * chipGlowOpacity}, ${
-          96 + (203 - 96) * chipGlowOpacity
-        }, ${37 + (61 - 37) * chipGlowOpacity}, 1)`
-      : "#a4242f";
+    // Base chip color with glow overlay (only if not using gradient background)
+    if (!hasSpinGradient) {
+      element.style.backgroundColor = hasChipGlow
+        ? `rgba(${166 + (253 - 166) * chipGlowOpacity}, ${
+            96 + (203 - 96) * chipGlowOpacity
+          }, ${37 + (61 - 37) * chipGlowOpacity}, 1)`
+        : "#a4242f";
+    }
 
     // Box shadow for chip glow (covers entire chip)
     element.style.boxShadow = hasChipGlow
@@ -363,7 +378,7 @@ export default function WebGLPage() {
         )}`
       : "none";
 
-    // Filter for perimeter glow (around edges)
+    // Filter for perimeter glow (around edges) - uses edge color when spin is active
     element.style.filter = hasPerimeterGlow
       ? `drop-shadow(0 0 ${perimeterGlowBlur}px ${glowColor.replace(
           "1)",

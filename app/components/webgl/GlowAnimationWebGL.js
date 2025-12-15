@@ -116,12 +116,16 @@ export default function GlowAnimationWebGL({
   });
   // Track previous border opacity for spin animation
   const prevBorderOpacityRef = useRef(0);
+  // Track previous background gradient for spin animation
+  const prevBackgroundGradientRef = useRef(null);
   // Track if animation has actually started to avoid calling callback during initialization
   const hasAnimationStartedRef = useRef(false);
   // Throttle glow intensity updates to reduce CPU usage
   const glowUpdateThrottleRef = useRef(false);
   // Throttle time updates to reduce CPU usage
   const timeUpdateThrottleRef = useRef(false);
+  // Track last rect check time to throttle dimension checks
+  const lastRectCheckRef = useRef(0);
   // Store callback in ref to avoid adding it to dependency array (prevents animation reset)
   const onGlowIntensityChangeRef = useRef(onGlowIntensityChange);
   // Store config in ref to prevent unnecessary re-runs
@@ -152,10 +156,23 @@ export default function GlowAnimationWebGL({
 
   useEffect(() => {
     if (anchorEl?.getBoundingClientRect) {
-      anchorRectRef.current = anchorEl.getBoundingClientRect();
+      // Get base dimensions from computed styles (before any CSS transforms)
+      // This ensures we get the actual element size, not the transformed size
+      const computedStyle = window.getComputedStyle(anchorEl);
+      const baseWidth = parseFloat(computedStyle.width) || anchorEl.offsetWidth;
+      const baseHeight =
+        parseFloat(computedStyle.height) || anchorEl.offsetHeight;
+
+      const rect = anchorEl.getBoundingClientRect();
+      // Use base dimensions instead of transformed dimensions
+      anchorRectRef.current = {
+        ...rect,
+        width: baseWidth,
+        height: baseHeight,
+      };
       anchorCenterRef.current = [
-        anchorRectRef.current.left + anchorRectRef.current.width / 2,
-        anchorRectRef.current.top + anchorRectRef.current.height / 2,
+        rect.left + baseWidth / 2,
+        rect.top + baseHeight / 2,
       ];
     } else {
       anchorRectRef.current = null;
@@ -283,10 +300,23 @@ export default function GlowAnimationWebGL({
         }
 
         if (anchorEl?.getBoundingClientRect) {
-          anchorRectRef.current = anchorEl.getBoundingClientRect();
+          // Get base dimensions from computed styles (before any CSS transforms)
+          const computedStyle = window.getComputedStyle(anchorEl);
+          const baseWidth =
+            parseFloat(computedStyle.width) || anchorEl.offsetWidth;
+          const baseHeight =
+            parseFloat(computedStyle.height) || anchorEl.offsetHeight;
+
+          const transformedRect = anchorEl.getBoundingClientRect();
+          // Use base dimensions, not transformed dimensions
+          anchorRectRef.current = {
+            ...transformedRect,
+            width: baseWidth,
+            height: baseHeight,
+          };
           anchorCenterRef.current = [
-            anchorRectRef.current.left + anchorRectRef.current.width / 2,
-            anchorRectRef.current.top + anchorRectRef.current.height / 2,
+            transformedRect.left + baseWidth / 2,
+            transformedRect.top + baseHeight / 2,
           ];
         }
       };
@@ -395,7 +425,9 @@ export default function GlowAnimationWebGL({
             const ellipseCfg = p.ellipse || cfg.ellipse;
             let autoA = ellipseCfg?.a;
             let bVal = ellipseCfg?.b ?? 0.0;
-            if (rect && autoA === undefined) {
+            // Always calculate autoA from rect if available, to ensure it scales with BetSpot size
+            // Only use config value if rect is not available
+            if (rect) {
               autoA = calculateAutoA(rect, 10);
             } else if (autoA === undefined) {
               autoA = 150;
@@ -433,10 +465,46 @@ export default function GlowAnimationWebGL({
         }
       };
 
+      // Initial path metrics calculation - will be recalculated if rect dimensions change
       precalculatePathMetrics();
 
       // Pre-computed paths are updated in the useEffect above when config changes
       // This ensures they're ready before animation starts
+
+      // Also recalculate metrics when animation starts to ensure we have the latest rect
+      const recalculateOnStart = () => {
+        if (anchorEl?.getBoundingClientRect) {
+          // Get base dimensions from computed styles (before any CSS transforms)
+          const computedStyle = window.getComputedStyle(anchorEl);
+          const baseWidth =
+            parseFloat(computedStyle.width) || anchorEl.offsetWidth;
+          const baseHeight =
+            parseFloat(computedStyle.height) || anchorEl.offsetHeight;
+
+          const transformedRect = anchorEl.getBoundingClientRect();
+          const cachedRect = anchorRectRef.current;
+
+          // If base dimensions changed or weren't set, update and recalculate
+          if (
+            !cachedRect ||
+            Math.abs(cachedRect.width - baseWidth) > 0.1 ||
+            Math.abs(cachedRect.height - baseHeight) > 0.1
+          ) {
+            // Use base dimensions, not transformed dimensions
+            anchorRectRef.current = {
+              ...transformedRect,
+              width: baseWidth,
+              height: baseHeight,
+            };
+            anchorCenterRef.current = [
+              transformedRect.left + baseWidth / 2,
+              transformedRect.top + baseHeight / 2,
+            ];
+            pathMetricsRef.current.clear();
+            precalculatePathMetrics();
+          }
+        }
+      };
 
       const animate = (ts) => {
         // Removed CPU monitoring to reduce overhead
@@ -456,10 +524,14 @@ export default function GlowAnimationWebGL({
             perimeterGlowIntensity: 0,
             glowScale: 1.0,
           };
-          // Reset border when animation stops
+          // Reset border and background when animation stops
           if (anchorEl && prevBorderOpacityRef.current > 0) {
             prevBorderOpacityRef.current = 0;
             anchorEl.style.border = "none";
+            if (prevBackgroundGradientRef.current) {
+              anchorEl.style.background = "";
+              prevBackgroundGradientRef.current = null;
+            }
           }
           // Reset accumulated time
           accumulatedSecRef.current = 0;
@@ -476,6 +548,49 @@ export default function GlowAnimationWebGL({
         // Removed CPU monitoring frame budget calculation
 
         const currentTimeSec = accumulatedSecRef.current;
+
+        // Update rect from anchorEl if available (to handle dynamic size changes)
+        // Check on first frame, then throttle to every ~100ms to avoid performance issues
+        const now = performance.now();
+        const shouldCheck =
+          !lastRectCheckRef.current || now - lastRectCheckRef.current > 100;
+
+        if (anchorEl?.getBoundingClientRect && shouldCheck) {
+          lastRectCheckRef.current = now;
+          // Get base dimensions from computed styles (before any CSS transforms)
+          const computedStyle = window.getComputedStyle(anchorEl);
+          const baseWidth =
+            parseFloat(computedStyle.width) || anchorEl.offsetWidth;
+          const baseHeight =
+            parseFloat(computedStyle.height) || anchorEl.offsetHeight;
+
+          const transformedRect = anchorEl.getBoundingClientRect();
+          const oldRect = anchorRectRef.current;
+
+          // Check if base dimensions changed (ignore transform scaling)
+          if (
+            !oldRect ||
+            Math.abs(oldRect.width - baseWidth) > 0.1 ||
+            Math.abs(oldRect.height - baseHeight) > 0.1
+          ) {
+            // Use base dimensions, not transformed dimensions
+            anchorRectRef.current = {
+              ...transformedRect,
+              width: baseWidth,
+              height: baseHeight,
+            };
+            anchorCenterRef.current = [
+              transformedRect.left + baseWidth / 2,
+              transformedRect.top + baseHeight / 2,
+            ];
+            // Clear cached metrics for all paths to force recalculation with new dimensions
+            // This ensures sparks adapt to the new BetSpot size
+            pathMetricsRef.current.clear();
+            // Recalculate path metrics when dimensions change
+            precalculatePathMetrics();
+          }
+        }
+
         const rect = anchorRectRef.current;
 
         // Notify parent of current time for multiplier animations
@@ -569,7 +684,10 @@ export default function GlowAnimationWebGL({
             }
           }
 
-          // Apply border to element if opacity changed
+          // Extract backgroundGradient from spinBorderData for use in both branches
+          const { backgroundGradient } = spinPath.spinBorderData || {};
+
+          // Apply border and background gradient to element if opacity changed
           if (
             Math.abs(prevBorderOpacityRef.current - borderOpacity) >
             BORDER_OPACITY_THRESHOLD
@@ -581,14 +699,46 @@ export default function GlowAnimationWebGL({
             if (borderOpacity > 0 && borderColorRgb) {
               anchorEl.style.border = `${borderWidth}px solid rgba(${borderColorRgb.r}, ${borderColorRgb.g}, ${borderColorRgb.b}, ${borderOpacity})`;
               anchorEl.style.borderRadius = `${borderRadius}px`;
+
+              // Apply radial gradient background if configured
+              if (backgroundGradient && borderOpacity > 0) {
+                const { centerColor, midColor, edgeColor, midStop } =
+                  backgroundGradient;
+                const gradient = `radial-gradient(circle at center, ${centerColor} 0%, ${midColor} ${midStop}%, ${edgeColor} 100%)`;
+                anchorEl.style.background = gradient;
+                prevBackgroundGradientRef.current = gradient;
+              } else if (backgroundGradient && borderOpacity === 0) {
+                // Reset to default background when animation ends
+                anchorEl.style.background = "";
+                prevBackgroundGradientRef.current = null;
+              }
             } else {
               anchorEl.style.border = "none";
+              if (prevBackgroundGradientRef.current) {
+                anchorEl.style.background = "";
+                prevBackgroundGradientRef.current = null;
+              }
             }
+          } else if (
+            backgroundGradient &&
+            borderOpacity > 0 &&
+            prevBackgroundGradientRef.current === null
+          ) {
+            // Apply gradient if border opacity is stable but gradient wasn't applied yet
+            const { centerColor, midColor, edgeColor, midStop } =
+              backgroundGradient;
+            const gradient = `radial-gradient(circle at center, ${centerColor} 0%, ${midColor} ${midStop}%, ${edgeColor} 100%)`;
+            anchorEl.style.background = gradient;
+            prevBackgroundGradientRef.current = gradient;
           }
         } else if (!spinPath && anchorEl && prevBorderOpacityRef.current > 0) {
-          // Remove border when spin animation is not active
+          // Remove border and background when spin animation is not active
           prevBorderOpacityRef.current = 0;
           anchorEl.style.border = "none";
+          if (prevBackgroundGradientRef.current) {
+            anchorEl.style.background = "";
+            prevBackgroundGradientRef.current = null;
+          }
         }
 
         // Notify parent of glow intensity changes only when values actually change and animation is playing
@@ -785,9 +935,9 @@ export default function GlowAnimationWebGL({
             continue;
           }
 
+          const pathLength = metrics.pathLength || 1.0;
           const lineLength =
             precomputedPath.originalPath.length ?? cfg.length ?? 300.0;
-          const pathLength = metrics.pathLength || 1.0;
 
           // Cache path constants (shared across instances since config is same)
           const pathConstantsKey = `${
@@ -803,7 +953,9 @@ export default function GlowAnimationWebGL({
               precomputedPath.originalPath.overshoot ?? cfg.overshoot ?? 0.08;
             const fadeWindow =
               precomputedPath.originalPath.fadeWindow ?? cfg.fadeWindow ?? 0.08;
+
             const totalSpan = 1.0 + segmentParam + overshoot;
+
             const durationSec = precomputedPath.durationSec;
             const fadeWindowDuration = (fadeWindow / totalSpan) * durationSec;
             const totalDuration = durationSec + fadeWindowDuration;
@@ -1021,10 +1173,14 @@ export default function GlowAnimationWebGL({
             glowScale: 1.0,
           };
 
-          // Reset border
+          // Reset border and background
           if (anchorEl && prevBorderOpacityRef.current > 0) {
             prevBorderOpacityRef.current = 0;
             anchorEl.style.border = "none";
+            if (prevBackgroundGradientRef.current) {
+              anchorEl.style.background = "";
+              prevBackgroundGradientRef.current = null;
+            }
           }
 
           // Reset glow intensities via callback to ensure parent state is updated
@@ -1215,6 +1371,9 @@ export default function GlowAnimationWebGL({
       };
 
       if (isPlaying && !animationIdRef.current) {
+        // Recalculate metrics when animation starts to ensure we have latest dimensions
+        recalculateOnStart();
+
         lastTsRef.current = null;
         accumulatedSecRef.current = 0;
         hasAnimationStartedRef.current = false; // Reset flag
@@ -1225,10 +1384,12 @@ export default function GlowAnimationWebGL({
           perimeterGlowIntensity: -1,
           glowScale: -1,
         };
-        // Reset border opacity
+        // Reset border opacity and background
         prevBorderOpacityRef.current = 0;
+        prevBackgroundGradientRef.current = null;
         if (anchorEl) {
           anchorEl.style.border = "none";
+          anchorEl.style.background = "";
         }
         animationIdRef.current = requestAnimationFrame(animate);
       } else if (!isPlaying && animationIdRef.current) {
@@ -1244,10 +1405,14 @@ export default function GlowAnimationWebGL({
           perimeterGlowIntensity: 0,
           glowScale: 1.0,
         };
-        // Reset border when animation stops
+        // Reset border and background when animation stops
         if (anchorEl && prevBorderOpacityRef.current > 0) {
           prevBorderOpacityRef.current = 0;
           anchorEl.style.border = "none";
+          if (prevBackgroundGradientRef.current) {
+            anchorEl.style.background = "";
+            prevBackgroundGradientRef.current = null;
+          }
         }
         // Reset accumulated time
         accumulatedSecRef.current = 0;

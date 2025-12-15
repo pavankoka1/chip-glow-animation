@@ -78,6 +78,7 @@ export function precomputePathData(path, cfg) {
   if (isSpinPath) {
     const fadeInMs = 300;
     const fadeOutMs = 300;
+    const backgroundGradient = path.backgroundGradient;
     spinBorderData = {
       fadeInSec: fadeInMs / 1000.0,
       fadeOutSec: fadeOutMs / 1000.0,
@@ -85,6 +86,14 @@ export function precomputePathData(path, cfg) {
       borderRadius: path.borderRadius ?? 5,
       borderColor: path.borderColor ?? "#eaa13b",
       borderColorRgb,
+      backgroundGradient: backgroundGradient
+        ? {
+            centerColor: backgroundGradient.centerColor ?? "#834F03",
+            midColor: backgroundGradient.midColor ?? "#9C6004",
+            edgeColor: backgroundGradient.edgeColor ?? "#CE9404",
+            midStop: backgroundGradient.midStop ?? 40.8232,
+          }
+        : null,
     };
   }
 
