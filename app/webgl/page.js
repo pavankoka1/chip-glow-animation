@@ -159,6 +159,7 @@ export default function WebGLPage() {
         animationTimeMs: 1000,
         enabled: true,
         maxScale: 1.1, // Same as objectGlow default - scales BetSpot from 1.0 to 1.1
+        glowSpread: 0.12, // Spread multiplier for glow effect (default: 0.02 for outer, 0.01 for inner)
       },
       {
         id: 9,
@@ -261,6 +262,10 @@ export default function WebGLPage() {
   const svgMaxScaleReachedRef = useRef({});
   // Track previous scale to detect when we cross max threshold
   const svgPreviousScaleRef = useRef({});
+  // Track glow peak to control glow intensity fade-out
+  const svgGlowPeakReachedRef = useRef({});
+  // Store original BetSpot size to avoid recalculating every frame (prevents glitchy glow)
+  const betspotOriginalSizeRef = useRef({});
   const [anchorEls, setAnchorEls] = useState(() =>
     Array(betspotCount).fill(null)
   );
@@ -359,9 +364,10 @@ export default function WebGLPage() {
 
       // Also apply to SVG if it exists (for rAF sync)
       const svgElement = svgRefsStorage.current[index];
-      const hasSvgPath = config.paths?.some(
+      const svgPath = config.paths?.find(
         (p) => p.type === "svg" && p.enabled !== false
       );
+      const hasSvgPath = !!svgPath;
 
       if (svgElement && hasSvgPath) {
         const threshold = 1.09; // Slightly below max (1.1) to account for floating point precision
@@ -404,6 +410,120 @@ export default function WebGLPage() {
         svgElement.style.opacity = opacity;
         svgElement.style.transform = `scale(${glowScale})`;
         svgElement.style.transformOrigin = "center center";
+        // Reset visibility when animation starts (opacity > 0)
+        if (opacity > 0) {
+          svgElement.style.visibility = "visible";
+        }
+
+        // Control glow intensity from rAF via BetSpot box-shadow
+        // Glow should increase from 0 to 1 as scale goes from 1.0 to 1.1
+        // Then decrease from 1 to 0 as scale goes from 1.1 back to 1.0
+        let glowIntensity = 0;
+
+        // Initialize glow peak tracking ref if needed
+        if (!svgGlowPeakReachedRef.current[index]) {
+          svgGlowPeakReachedRef.current[index] = false;
+        }
+
+        // Detect if we've reached peak by checking if we're going down from a peak
+        // Once we detect we're going down, we know we've peaked
+        const isGoingDown = previousScale > glowScale;
+        if ((isGoingDown && previousScale >= 1.05) || glowScale >= 1.1) {
+          svgGlowPeakReachedRef.current[index] = true;
+        }
+
+        const hasReachedPeak = svgGlowPeakReachedRef.current[index];
+
+        // Calculate glow intensity based on scale position
+        // First half (1.0 -> 1.1): glow increases from 0 to 1
+        // Second half (1.1 -> 1.0): glow decreases from 1 to 0
+        if (!hasReachedPeak) {
+          // First half: scale is increasing from 1.0 to 1.1
+          // Glow increases from 0 to 1 proportionally
+          if (glowScale > 1.0) {
+            glowIntensity = Math.min(1, Math.max(0, (glowScale - 1.0) / 0.1));
+          } else {
+            glowIntensity = 0;
+          }
+        } else {
+          // Second half: scale is decreasing from 1.1 to 1.0
+          // Glow decreases from 1 to 0 proportionally
+          // Formula: (1.1 - glowScale) / 0.1
+          // At 1.1: (1.1 - 1.1) / 0.1 = 0.0 (but we want 1.0 at peak)
+          // At 1.05: (1.1 - 1.05) / 0.1 = 0.5 ✓
+          // At 1.0: (1.1 - 1.0) / 0.1 = 1.0 (but we want 0.0 at end)
+          // Correct formula: (glowScale - 1.0) / 0.1 for decreasing phase
+          // At 1.1: (1.1 - 1.0) / 0.1 = 1.0 ✓
+          // At 1.05: (1.05 - 1.0) / 0.1 = 0.5 ✓
+          // At 1.0: (1.0 - 1.0) / 0.1 = 0.0 ✓
+          if (glowScale >= 1.1) {
+            glowIntensity = 1.0;
+          } else if (glowScale > 1.0) {
+            // Use same formula as first half: (glowScale - 1.0) / 0.1
+            // This gives us 1.0 at 1.1 and 0.0 at 1.0
+            glowIntensity = Math.min(1, Math.max(0, (glowScale - 1.0) / 0.1));
+          } else {
+            glowIntensity = 0;
+          }
+        }
+
+        // Apply glow to BetSpot using box-shadow
+        // Glow color matches original SVG: rgb(255, 187, 1) or similar
+        // Using multiple box-shadows to create layered glow effect
+        // IMPORTANT: Box-shadow doesn't scale with transform, so we need to scale the blur/spread values
+        if (glowIntensity > 0) {
+          // Store original size once to avoid recalculating every frame (prevents glitchy glow)
+          // BetSpot default size is 100px x 100px
+          if (!betspotOriginalSizeRef.current[index]) {
+            const rect = element.getBoundingClientRect();
+            // Store the original size when scale is 1.0 (or calculate from current if not 1.0)
+            if (glowScale === 1.0) {
+              betspotOriginalSizeRef.current[index] = Math.max(
+                rect.width,
+                rect.height
+              );
+            } else {
+              // Calculate original size by dividing by current scale
+              betspotOriginalSizeRef.current[index] =
+                Math.max(rect.width, rect.height) / glowScale;
+            }
+          }
+
+          const baseSize = betspotOriginalSizeRef.current[index];
+
+          // Get glowSpread from config, default to 0.02 if not specified
+          const glowSpread = svgPath?.glowSpread ?? 0.02;
+
+          // Base blur radius scales with BetSpot size
+          const baseBlur1 = baseSize * 0.15;
+          const baseBlur2 = baseSize * 0.08;
+          // Use glowSpread for outer glow, half of it for inner glow
+          const spread1 = baseSize * glowSpread;
+          const spread2 = baseSize * (glowSpread * 0.5);
+
+          // Glow color: rgb(255, 187, 1) - matches original SVG glow
+          const glowColor = "rgba(255, 187, 1, 1)";
+          const glowColor2 = "rgba(255, 187, 1, 0.8)";
+
+          // Scale the blur and spread by both glowIntensity AND glowScale
+          // This ensures the glow scales proportionally with the element
+          const blur1 = baseBlur1 * glowIntensity * glowScale;
+          const blur2 = baseBlur2 * glowIntensity * glowScale;
+          const spreadRadius1 = spread1 * glowIntensity * glowScale;
+          const spreadRadius2 = spread2 * glowIntensity * glowScale;
+
+          element.style.boxShadow = `
+            0 0 ${blur1}px ${spreadRadius1}px ${glowColor2},
+            0 0 ${blur2}px ${spreadRadius2}px ${glowColor}
+          `;
+
+          // Ensure overflow is visible so glow can extend outside
+          element.style.overflow = "visible";
+        } else {
+          // Remove glow when intensity is 0
+          element.style.boxShadow = "";
+          element.style.overflow = ""; // Reset overflow
+        }
 
         // Set BetSpot border radius to match SVG (6.75px) when SVG animation is active
         // SVG is active when opacity > 0 (animation has started) or scale !== 1.0
@@ -415,8 +535,9 @@ export default function WebGLPage() {
           element.style.borderRadius = "";
         }
       } else {
-        // No SVG path or SVG element - remove border radius
+        // No SVG path or SVG element - remove border radius and glow
         element.style.borderRadius = "";
+        element.style.boxShadow = "";
       }
     },
     [config]
@@ -470,6 +591,8 @@ export default function WebGLPage() {
         // Reset max scale reached flag and previous scale when betspot count changes
         svgMaxScaleReachedRef.current[i] = false;
         svgPreviousScaleRef.current[i] = 1.0;
+        svgGlowPeakReachedRef.current[i] = false;
+        delete betspotOriginalSizeRef.current[i];
         return (
           existing || {
             chipGlowIntensity: 0,
@@ -498,30 +621,47 @@ export default function WebGLPage() {
   };
 
   const handleAnimationComplete = useCallback((betspotIndex) => {
-    console.log("[PLAY_BUTTON] handleAnimationComplete called", {
-      betspotIndex,
-      timestamp: Date.now(),
-    });
-
     // Reset max scale reached flag and previous scale when animation completes
     svgMaxScaleReachedRef.current[betspotIndex] = false;
     svgPreviousScaleRef.current[betspotIndex] = 1.0;
+    // Reset glow peak tracking
+    svgGlowPeakReachedRef.current[betspotIndex] = false;
+    // Clear stored original size (will be recalculated on next animation)
+    delete betspotOriginalSizeRef.current[betspotIndex];
 
-    // Remove border radius from BetSpot when animation completes
+    // Remove border radius and glow from BetSpot when animation completes
     const element = betspotRefsStorage.current[betspotIndex];
     if (element) {
       element.style.borderRadius = "";
+      element.style.boxShadow = "";
+      element.style.overflow = "";
+      element.style.transform = "scale(1)"; // Reset transform
     }
+
+    // Hide SVG when animation completes
+    const svgElement = svgRefsStorage.current[betspotIndex];
+    if (svgElement) {
+      svgElement.style.opacity = "0";
+      svgElement.style.transform = "scale(1)";
+      svgElement.style.visibility = "hidden"; // Hide completely
+    }
+
+    // Reset glow intensities in state
+    setGlowIntensities((prev) => {
+      const newIntensities = [...prev];
+      if (newIntensities[betspotIndex]) {
+        newIntensities[betspotIndex] = {
+          chipGlowIntensity: 0,
+          perimeterGlowIntensity: 0,
+          glowScale: 1.0,
+        };
+      }
+      return newIntensities;
+    });
 
     // Update isPlaying state - use functional update to ensure we get latest state
     setIsPlaying((prev) => {
       const currentSelected = selectedBetspotsRef.current;
-      console.log("[PLAY_BUTTON] setIsPlaying functional update", {
-        betspotIndex,
-        prevState: [...prev],
-        prevBetspotPlaying: prev[betspotIndex],
-        selectedBetspots: [...currentSelected],
-      });
 
       // Check if this betspot was playing
       if (prev[betspotIndex] === true) {
@@ -529,18 +669,9 @@ export default function WebGLPage() {
         newPlaying[betspotIndex] = false;
         // Update ref to keep it in sync
         isPlayingRef.current = newPlaying;
-        console.log("[PLAY_BUTTON] Updated isPlaying state", {
-          betspotIndex,
-          newState: [...newPlaying],
-          refUpdated: isPlayingRef.current,
-        });
         return newPlaying;
       }
       // Return same reference if no change
-      console.log("[PLAY_BUTTON] No state change needed", {
-        betspotIndex,
-        reason: "betspot was not playing",
-      });
       return prev;
     });
   }, []);
@@ -722,11 +853,6 @@ export default function WebGLPage() {
     const result = isPlaying.some(
       (playing, index) => selectedBetspots[index] && playing
     );
-    console.log("[PLAY_BUTTON] isAnyPlaying calculated", {
-      result,
-      isPlaying: [...isPlaying],
-      selectedBetspots: [...selectedBetspots],
-    });
     return result;
   }, [isPlaying, selectedBetspots]);
 
@@ -747,6 +873,23 @@ export default function WebGLPage() {
         }
         // Reset current time
         currentTimeSecRefs.current[index] = 0;
+
+        // Hide SVG when animation stops
+        const svgElement = svgRefsStorage.current[index];
+        if (svgElement) {
+          svgElement.style.opacity = "0";
+          svgElement.style.transform = "scale(1)";
+          svgElement.style.visibility = "hidden";
+        }
+
+        // Reset BetSpot transform and styles
+        const element = betspotRefsStorage.current[index];
+        if (element) {
+          element.style.transform = "scale(1)";
+          element.style.borderRadius = "";
+          element.style.boxShadow = "";
+          element.style.overflow = "";
+        }
       }
     });
   }, [isPlaying, selectedBetspots]);
@@ -774,6 +917,7 @@ export default function WebGLPage() {
           <div
             key={index}
             className="relative flex items-center justify-center"
+            style={{ overflow: "visible" }}
           >
             <MemoizedBetSpot ref={getAnchorRefCallback(index)} />
             {config.paths?.some(

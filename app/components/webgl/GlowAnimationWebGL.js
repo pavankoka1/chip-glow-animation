@@ -896,12 +896,13 @@ export default function GlowAnimationWebGL({
 
         // Second pass: render other animations (spark, line, circle) - will appear on top
         for (const precomputedPath of precomputedPaths) {
-          // Skip spin, objectGlow, and multiplier in second pass
-          // (spin handled in first pass, objectGlow handled via CSS, multiplier handled in page.js)
+          // Skip spin, objectGlow, svg, and multiplier in second pass
+          // (spin handled in first pass, objectGlow/svg handled via CSS, multiplier handled in page.js)
           if (
             precomputedPath.isSpinPath ||
             precomputedPath.isObjectGlowPath ||
-            precomputedPath.isMultiplierPath
+            precomputedPath.isMultiplierPath ||
+            precomputedPath.isSvgPath
           ) {
             // Handle objectGlow completion check
             if (precomputedPath.isObjectGlowPath) {
@@ -938,6 +939,25 @@ export default function GlowAnimationWebGL({
                   allComplete = false;
                 }
                 // If elapsed >= durationSec, multiplier is complete
+              }
+              // If elapsed <= 0, path hasn't started yet, doesn't affect completion
+            }
+            // Handle SVG completion check (SVG handled via CSS transform/opacity)
+            if (precomputedPath.isSvgPath) {
+              const elapsed = Math.max(
+                0,
+                currentTimeSec - precomputedPath.delaySec
+              );
+
+              // SVG completion check
+              if (elapsed > 0) {
+                // Path has started
+                hasAnyStartedPath = true;
+                if (elapsed < precomputedPath.durationSec) {
+                  // SVG is still animating
+                  allComplete = false;
+                }
+                // If elapsed >= durationSec, SVG is complete
               }
               // If elapsed <= 0, path hasn't started yet, doesn't affect completion
             }
@@ -1215,24 +1235,16 @@ export default function GlowAnimationWebGL({
           // Call completion callback - this will update parent isPlaying state
           // This must be called to update the play button state
           const completeCallback = onAnimationCompleteRef.current;
-          console.log("[PLAY_BUTTON] Animation complete, calling callback", {
-            hasCallback: !!completeCallback,
-            isPlaying: isPlaying,
-            timestamp: Date.now(),
-          });
           if (completeCallback) {
             try {
               // Call immediately - React will batch the state update
               completeCallback();
-              console.log("[PLAY_BUTTON] Callback executed successfully");
             } catch (error) {
               console.error(
                 "[GlowAnimationWebGL] ❌ Error in onAnimationComplete callback:",
                 error
               );
             }
-          } else {
-            console.warn("[PLAY_BUTTON] No callback available!");
           }
 
           // Don't schedule another frame - animation is complete

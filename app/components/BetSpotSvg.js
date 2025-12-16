@@ -5,7 +5,7 @@ const BetSpotSvg = function BetSpotSvg({ betspotRef, svgRef }) {
 
   // Generate stable unique IDs using useId (SSR-safe, consistent between server and client)
   const baseId = useId();
-  const filterId = `betspot_glow_${baseId}`;
+  // const filterId = `betspot_glow_${baseId}`; // Commented out - glow now controlled via BetSpot box-shadow
   const fullBgGradientId = `betspot_full_bg_${baseId}`;
   const borderGradientId = `betspot_border_${baseId}`;
 
@@ -157,7 +157,8 @@ const BetSpotSvg = function BetSpotSvg({ betspotRef, svgRef }) {
         {/* Filter with extended bounds to allow glow outside - matches original SVG */}
         {/* Original filter bounds: x="0.000198364" y="-4.57764e-05" width="61.3297" height="153.33" */}
         {/* Filter bounds cover the BetSpot content area plus glow extension */}
-        <filter
+        {/* GLOW FILTER COMMENTED OUT - Now controlled via BetSpot box-shadow from rAF */}
+        {/* <filter
           id={filterId}
           x={`${contentOffsetX - glowExtension * 0.5}`}
           y={`${contentOffsetY - glowExtension * 0.5}`}
@@ -209,7 +210,7 @@ const BetSpotSvg = function BetSpotSvg({ betspotRef, svgRef }) {
             in2="effect2_dropShadow"
             result="shape"
           />
-        </filter>
+        </filter> */}
         {/* Border linear gradient - matches original SVG pattern */}
         {/* Original: x1="8.66504" y1="15.4295" x2="57.1714" y2="39.5179" */}
         {/* Original viewBox: "0 0 61 64", filled path: 8.66504 to 51.665 (width = 43) */}
@@ -235,10 +236,9 @@ const BetSpotSvg = function BetSpotSvg({ betspotRef, svgRef }) {
         </linearGradient>
       </defs>
 
-      {/* Border group with glow filter - covers full BetSpot */}
-      {/* The filter creates glow around both the filled shape and the border stroke */}
-      {/* Structure matches original SVG: filter applied to group containing filled path and stroke */}
-      <g filter={`url(#${filterId})`}>
+      {/* Border group - glow now controlled via BetSpot box-shadow from rAF */}
+      {/* <g filter={`url(#${filterId})`}> */}
+      <g>
         {/* Filled background path - edge to edge of BetSpot, gets the glow effect */}
         {/* Path coordinates use contentOffset to position BetSpot content in center of extended SVG */}
         {/* This should go from edge to edge (0 to width, 0 to height in content coordinates) */}
