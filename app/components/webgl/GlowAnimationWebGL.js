@@ -424,13 +424,37 @@ export default function GlowAnimationWebGL({
             const prev = pathMetricsRef.current.get(p.id);
             const ellipseCfg = p.ellipse || cfg.ellipse;
             let autoA = ellipseCfg?.a;
-            let bVal = ellipseCfg?.b ?? 0.0;
+            let bVal = ellipseCfg?.b;
             // Always calculate autoA from rect if available, to ensure it scales with BetSpot size
             // Only use config value if rect is not available
             if (rect) {
               autoA = calculateAutoA(rect, 10);
             } else if (autoA === undefined) {
               autoA = 150;
+            }
+
+            // Calculate 'b' dynamically to maintain proportional ellipse shape
+            // If 'b' is not provided in config, calculate it relative to BetSpot size
+            // For non-square rectangles, scale b based on the smaller dimension
+            if (bVal === undefined || bVal === null) {
+              if (rect) {
+                // Calculate b proportionally to maintain similar ellipse shape
+                // Use the smaller dimension to ensure the ellipse fits well
+                const minDimension = Math.min(rect.width, rect.height);
+                const maxDimension = Math.max(rect.width, rect.height);
+                // Scale b proportionally: maintain ~4:1 ratio with a
+                // But also account for aspect ratio - if very wide/tall, adjust
+                const aspectRatio = maxDimension / minDimension;
+                // Base calculation: minDimension * 0.2 (works for square)
+                // Adjust slightly for extreme aspect ratios
+                const baseB = minDimension * 0.2;
+                // For very wide/tall rectangles, reduce b slightly to keep ellipse proportional
+                bVal = baseB / Math.sqrt(aspectRatio);
+              } else {
+                // Fallback: maintain ratio with default a = 150
+                bVal = autoA * 0.2475; // Maintains ~4:1 ratio
+              }
+            } else {
             }
 
             const ellipseTiltDeg = p.ellipseTiltDeg ?? cfg.ellipseTiltDeg ?? 0;
@@ -524,14 +548,11 @@ export default function GlowAnimationWebGL({
             perimeterGlowIntensity: 0,
             glowScale: 1.0,
           };
-          // Reset border and background when animation stops
+          // Reset border when animation stops
           if (anchorEl && prevBorderOpacityRef.current > 0) {
             prevBorderOpacityRef.current = 0;
             anchorEl.style.border = "none";
-            if (prevBackgroundGradientRef.current) {
-              anchorEl.style.background = "";
-              prevBackgroundGradientRef.current = null;
-            }
+            // Background color is now handled by SVG - don't set it here
           }
           // Reset accumulated time
           accumulatedSecRef.current = 0;
@@ -632,7 +653,39 @@ export default function GlowAnimationWebGL({
         let perimeterGlowIntensity = 0;
         let glowScale = 1.0;
 
-        if (objectGlowPath) {
+        // Handle svg animation (replaces objectGlow for BetSpot scaling)
+        const svgPath = findPrecomputedPathByType(precomputedPaths, "svg");
+        if (svgPath && svgPath.svgData) {
+          const elapsed = Math.max(0, currentTimeSec - svgPath.delaySec);
+
+          if (elapsed >= 0) {
+            if (elapsed < svgPath.durationSec) {
+              // During animation
+              const normalizedTime = Math.min(
+                1.0,
+                elapsed / svgPath.durationSec
+              );
+              const { firstHalfDuration, maxScale, scaleRange } =
+                svgPath.svgData;
+
+              if (normalizedTime <= firstHalfDuration) {
+                // First half: scale from 1.0 to maxScale
+                const progress = normalizedTime / firstHalfDuration;
+                glowScale = 1.0 + scaleRange * progress;
+              } else {
+                // Second half: scale from maxScale back to 1.0
+                const progress =
+                  (normalizedTime - firstHalfDuration) /
+                  (1.0 - firstHalfDuration);
+                glowScale = maxScale - scaleRange * progress;
+              }
+            } else {
+              // After animation completes: stay at 1.0 until animation ends
+              glowScale = 1.0;
+            }
+          }
+        } else if (objectGlowPath) {
+          // Fallback to objectGlow if svg is not present
           const elapsed = Math.max(0, currentTimeSec - objectGlowPath.delaySec);
 
           if (elapsed > 0 && elapsed < objectGlowPath.durationSec) {
@@ -699,46 +752,15 @@ export default function GlowAnimationWebGL({
             if (borderOpacity > 0 && borderColorRgb) {
               anchorEl.style.border = `${borderWidth}px solid rgba(${borderColorRgb.r}, ${borderColorRgb.g}, ${borderColorRgb.b}, ${borderOpacity})`;
               anchorEl.style.borderRadius = `${borderRadius}px`;
-
-              // Apply radial gradient background if configured
-              if (backgroundGradient && borderOpacity > 0) {
-                const { centerColor, midColor, edgeColor, midStop } =
-                  backgroundGradient;
-                const gradient = `radial-gradient(circle at center, ${centerColor} 0%, ${midColor} ${midStop}%, ${edgeColor} 100%)`;
-                anchorEl.style.background = gradient;
-                prevBackgroundGradientRef.current = gradient;
-              } else if (backgroundGradient && borderOpacity === 0) {
-                // Reset to default background when animation ends
-                anchorEl.style.background = "";
-                prevBackgroundGradientRef.current = null;
-              }
+              // Background color is now handled by SVG - don't set it here
             } else {
               anchorEl.style.border = "none";
-              if (prevBackgroundGradientRef.current) {
-                anchorEl.style.background = "";
-                prevBackgroundGradientRef.current = null;
-              }
             }
-          } else if (
-            backgroundGradient &&
-            borderOpacity > 0 &&
-            prevBackgroundGradientRef.current === null
-          ) {
-            // Apply gradient if border opacity is stable but gradient wasn't applied yet
-            const { centerColor, midColor, edgeColor, midStop } =
-              backgroundGradient;
-            const gradient = `radial-gradient(circle at center, ${centerColor} 0%, ${midColor} ${midStop}%, ${edgeColor} 100%)`;
-            anchorEl.style.background = gradient;
-            prevBackgroundGradientRef.current = gradient;
           }
         } else if (!spinPath && anchorEl && prevBorderOpacityRef.current > 0) {
-          // Remove border and background when spin animation is not active
+          // Remove border when spin animation is not active
           prevBorderOpacityRef.current = 0;
           anchorEl.style.border = "none";
-          if (prevBackgroundGradientRef.current) {
-            anchorEl.style.background = "";
-            prevBackgroundGradientRef.current = null;
-          }
         }
 
         // Notify parent of glow intensity changes only when values actually change and animation is playing
@@ -1177,10 +1199,7 @@ export default function GlowAnimationWebGL({
           if (anchorEl && prevBorderOpacityRef.current > 0) {
             prevBorderOpacityRef.current = 0;
             anchorEl.style.border = "none";
-            if (prevBackgroundGradientRef.current) {
-              anchorEl.style.background = "";
-              prevBackgroundGradientRef.current = null;
-            }
+            // Background color is now handled by SVG - don't set it here
           }
 
           // Reset glow intensities via callback to ensure parent state is updated
@@ -1196,16 +1215,24 @@ export default function GlowAnimationWebGL({
           // Call completion callback - this will update parent isPlaying state
           // This must be called to update the play button state
           const completeCallback = onAnimationCompleteRef.current;
+          console.log("[PLAY_BUTTON] Animation complete, calling callback", {
+            hasCallback: !!completeCallback,
+            isPlaying: isPlaying,
+            timestamp: Date.now(),
+          });
           if (completeCallback) {
             try {
               // Call immediately - React will batch the state update
               completeCallback();
+              console.log("[PLAY_BUTTON] Callback executed successfully");
             } catch (error) {
               console.error(
                 "[GlowAnimationWebGL] ❌ Error in onAnimationComplete callback:",
                 error
               );
             }
+          } else {
+            console.warn("[PLAY_BUTTON] No callback available!");
           }
 
           // Don't schedule another frame - animation is complete
@@ -1386,10 +1413,9 @@ export default function GlowAnimationWebGL({
         };
         // Reset border opacity and background
         prevBorderOpacityRef.current = 0;
-        prevBackgroundGradientRef.current = null;
         if (anchorEl) {
           anchorEl.style.border = "none";
-          anchorEl.style.background = "";
+          // Background color is now handled by SVG - don't set it here
         }
         animationIdRef.current = requestAnimationFrame(animate);
       } else if (!isPlaying && animationIdRef.current) {

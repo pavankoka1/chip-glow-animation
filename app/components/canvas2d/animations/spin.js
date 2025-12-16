@@ -11,18 +11,25 @@ export function computeSpinPathLength(centerX, centerY, rect, borderWidth = 0) {
     };
   }
 
-  // The border is drawn on the element edge, so we need to use the content dimensions
-  // getBoundingClientRect() includes the border, so we subtract it
-  const contentWidth = rect.width - borderWidth * 2;
-  const contentHeight = rect.height - borderWidth * 2;
+  // In BetSpotSvg, the border is drawn INSIDE the content area
+  // The filled path goes edge-to-edge, and the border stroke is inset by halfStroke
+  // So rect.width is already the content width (the filled path width)
+  // We don't need to subtract borderWidth because the border is inside, not outside
+  const contentWidth = rect.width;
+  const contentHeight = rect.height;
   const halfWidth = contentWidth / 2;
   const halfHeight = contentHeight / 2;
-  const perimeter = 2 * (contentWidth + contentHeight);
+
+  // Calculate perimeter at the border stroke center (inset by half border width)
+  // Border stroke center is at: content edge - borderWidth/2
+  const borderHalfWidth = halfWidth - borderWidth / 2;
+  const borderHalfHeight = halfHeight - borderWidth / 2;
+  const perimeter = 2 * (borderHalfWidth * 2 + borderHalfHeight * 2);
 
   return {
     pathLength: perimeter,
-    halfWidth,
-    halfHeight,
+    halfWidth: borderHalfWidth, // Use border center half-width
+    halfHeight: borderHalfHeight, // Use border center half-height
   };
 }
 
@@ -33,7 +40,16 @@ export function computeSpinMetrics(
   centerX,
   centerY
 ) {
-  const borderWidth = pathConfig.borderWidth ?? 2;
+  // Calculate border width using the same formula as BetSpotSvg
+  // BetSpotSvg: borderStrokeWidth = width * (2.7 / originalSvgWidth)
+  // where originalSvgWidth = 62
+  const originalSvgWidth = 62;
+  const borderWidthRatio = 2.7 / originalSvgWidth;
+  // Use the actual rect width (element width) to calculate border width
+  // This matches how BetSpotSvg calculates it
+  const elementWidth = rect?.width ?? 100;
+  const borderWidth = elementWidth * borderWidthRatio;
+
   const pathResult = computeSpinPathLength(centerX, centerY, rect, borderWidth);
 
   return {
@@ -45,6 +61,7 @@ export function computeSpinMetrics(
     isSpin: true,
     rectWidth: rect?.width,
     rectHeight: rect?.height,
+    borderWidth, // Store borderWidth in metrics for use in renderSpinToPoints
   };
 }
 
@@ -296,31 +313,28 @@ export function renderSpinToPoints(
   const halfWidth = metrics.halfWidth ?? 50;
   const halfHeight = metrics.halfHeight ?? 50;
 
-  // Get configurable values from pathConfig or use defaults
-  const borderWidth = pathConfig.borderWidth ?? 2;
-  const borderRadius = pathConfig.borderRadius ?? 5;
-  const headColorHex = pathConfig.headColor ?? "#ffe2b6";
-  const tailColorHex = pathConfig.tailColor ?? "#eaa13b";
-  // Line width should match border width (as per original spec: "This line also takes the same width as the border")
-  const lineWidth = pathConfig.lineWidth ?? borderWidth;
-  // Head and tail widths for gradient effect (defaults to lineWidth)
-  const headWidth = pathConfig.headWidth ?? lineWidth;
-  const tailWidth = pathConfig.tailWidth ?? lineWidth;
+  // Get border width from metrics (calculated in computeSpinMetrics)
+  // or calculate it if not available
+  const borderWidth =
+    metrics.borderWidth ??
+    (metrics.rectWidth ? metrics.rectWidth * (2.7 / 62) : 2.7);
 
-  // Calculate offset to extend line beyond border
-  // If headWidth is 10px and borderWidth is 2px, we want 4px outside and 4px inside
-  // Offset the path outward by half the difference: (10 - 2) / 2 = 4px
-  // This positions the line center 4px outside the border edge
-  // With head radius = 5px, this gives: 5px + 4px = 9px outside, 5px - 4px = 1px inside
-  // To get exactly 4px outside and 4px inside, we need: offset = headRadius - 4px = 1px
-  // But that gives 4px outside and 6px inside
-  // Using offset = (maxLineWidth - borderWidth) / 2 centers the line relative to border
-  const maxLineWidth = Math.max(headWidth, tailWidth);
-  const pathOffset = (maxLineWidth - borderWidth) / 2;
+  // Head radius should match the border stroke radius (borderWidth/2), tail radius = 0
+  // Since the code uses headWidth/2 as the radius, we need headWidth = borderWidth
+  // This ensures the line head radius equals the border stroke radius (borderWidth/2)
+  const headWidth = borderWidth;
+  const tailWidth = 0;
 
-  // Adjust halfWidth and halfHeight to offset the path outward
-  const adjustedHalfWidth = halfWidth + pathOffset;
-  const adjustedHalfHeight = halfHeight + pathOffset;
+  const borderRadius = pathConfig.borderRadius ?? 6.75;
+  const headColorHex = pathConfig.headColor ?? "#ffeecc";
+  const tailColorHex = pathConfig.tailColor ?? "#fcbb60";
+
+  // Position lines exactly on the border path
+  // In computeSpinPathLength, we already calculated halfWidth and halfHeight
+  // at the border stroke center (inset by borderWidth/2 from content edge)
+  // So we can use them directly - no additional adjustment needed
+  const adjustedHalfWidth = halfWidth;
+  const adjustedHalfHeight = halfHeight;
 
   // Calculate 8 vertices around the perimeter (offset outward)
   const { vertices, borderRadius: safeBorderRadius } = calculateVertices(
@@ -380,9 +394,9 @@ export function renderSpinToPoints(
     cumulativeDistances.push(totalPerimeter);
   }
 
-  // Line length is 3/4th of betspot width
+  // Line length equals betspot width
   const width = halfWidth * 2;
-  const lineLength = (width * 3) / 4;
+  const lineLength = width;
 
   // Number of rotations (12 full rounds)
   const rotations = 12;
@@ -420,12 +434,12 @@ export function renderSpinToPoints(
     (baseStartDistance0 + halfPerimeter) % totalPerimeter;
 
   for (let lineIndex = 0; lineIndex < 2; lineIndex++) {
-    // Both lines use the same travelDistance to maintain same speed
-    // They start at opposite positions (exactly half perimeter apart)
+    // Both lines rotate clockwise (same direction)
+    // They start 180 degrees apart and maintain that separation
     const baseStartDistance =
       lineIndex === 0 ? baseStartDistance0 : baseStartDistance1;
 
-    // Current start position of the line
+    // Both lines move forward (clockwise) at the same speed
     const lineStartDistance = baseStartDistance + travelDistance;
     const lineEndDistance = lineStartDistance + lineLength;
 

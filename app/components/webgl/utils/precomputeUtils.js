@@ -23,6 +23,7 @@ export function precomputePathData(path, cfg) {
   const isLinePath = path.type === "line";
   const isSpinPath = path.type === "spin";
   const isObjectGlowPath = path.type === "objectGlow";
+  const isSvgPath = path.type === "svg";
   const isMultiplierPath = path.type === "multiplier";
 
   // Pre-compute default values
@@ -73,6 +74,18 @@ export function precomputePathData(path, cfg) {
     };
   }
 
+  // Pre-compute svg specific values
+  // SVG animation: first half scale up to max, second half scale down to 1, then stay at 1
+  let svgData = null;
+  if (isSvgPath) {
+    const maxScale = path.maxScale ?? 1.1; // Same as objectGlow default
+    svgData = {
+      firstHalfDuration: 0.5, // First half of animation time
+      maxScale,
+      scaleRange: maxScale - 1.0, // Range from 1.0 to maxScale
+    };
+  }
+
   // Pre-compute spin border specific values
   let spinBorderData = null;
   if (isSpinPath) {
@@ -105,6 +118,7 @@ export function precomputePathData(path, cfg) {
     isLinePath,
     isSpinPath,
     isObjectGlowPath,
+    isSvgPath,
     isMultiplierPath,
 
     // Timing (pre-computed)
@@ -130,6 +144,7 @@ export function precomputePathData(path, cfg) {
 
     // Path-specific pre-computed data
     objectGlowData,
+    svgData,
     spinBorderData,
 
     // Keep original path for any dynamic lookups

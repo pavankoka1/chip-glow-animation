@@ -4,6 +4,7 @@ import { PlayArrow, Settings, Stop } from "@mui/icons-material";
 import { IconButton } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import BetSpot from "./components/BetSpot";
+import BetSpotSvg from "./components/BetSpotSvg";
 import Chip from "./components/Chip";
 import ConfigModal from "./components/ConfigModal";
 import GlowAnimation from "./components/GlowAnimation";
@@ -70,6 +71,7 @@ export default function Home() {
     <div className="flex min-h-screen w-full items-center justify-center bg-black">
       <div className="relative flex items-center justify-center">
         <BetSpot ref={betspotRef} />
+        <BetSpotSvg betspotRef={betspotRef} />
         <Chip />
       </div>
       {anchorEl && (

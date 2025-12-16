@@ -5,10 +5,9 @@ const BetSpot = forwardRef(function BetSpot(props, ref) {
   return (
     <div
       ref={ref}
-      className="relative w-[100px] h-[100px] flex items-center justify-center"
+      className="relative w-[100px] h-[100px] flex items-center justify-center bg-[#a4242f]"
       style={{
-        backgroundColor: "#a4242f",
-        willChange: "transform, box-shadow, filter, background-color",
+        willChange: "transform",
       }}
     >
       {/* <span className="text-white text-4xl font-bold">10</span> */}

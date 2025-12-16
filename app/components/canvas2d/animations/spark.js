@@ -1,19 +1,19 @@
 import {
-  getEllipsePosition2D,
-  isPointInsideBetSpot,
-  calculateAutoA,
-} from "../geometry";
-import { getAngleForVertex } from "../utils";
-import { drawGlowPoint } from "../rendering";
-import {
+  EPSILON,
   INTERSECTION_SAMPLE_COUNT,
   MOBILE_INTERSECTION_SAMPLE_COUNT,
+  MOBILE_SAMPLE_COUNT,
   OUTSIDE_THRESHOLD,
   SAMPLE_COUNT,
-  MOBILE_SAMPLE_COUNT,
-  EPSILON,
 } from "../constants";
+import {
+  calculateAutoA,
+  getAngleForVertexFromRect,
+  getEllipsePosition2D,
+  isPointInsideBetSpot,
+} from "../geometry";
 import { isMobileDevice } from "../mobileOptimization";
+import { drawGlowPoint } from "../rendering";
 
 function findEllipseBetSpotIntersection(
   a,
@@ -119,7 +119,9 @@ export function computeSparkPathLength(
   );
   let total = 0;
 
-  const intersectionSamples = isMobileDevice() ? MOBILE_INTERSECTION_SAMPLE_COUNT : INTERSECTION_SAMPLE_COUNT;
+  const intersectionSamples = isMobileDevice()
+    ? MOBILE_INTERSECTION_SAMPLE_COUNT
+    : INTERSECTION_SAMPLE_COUNT;
   for (let i = 1; i <= intersectionSamples; i++) {
     const t = i / intersectionSamples;
     const th = thetaStart + (actualThetaEnd - thetaStart) * t;
@@ -167,13 +169,22 @@ export function getSparkPathPosition(
   );
 }
 
-export function computeSparkMetrics(pathConfig, globalConfig, rect, centerX, centerY) {
+export function computeSparkMetrics(
+  pathConfig,
+  globalConfig,
+  rect,
+  centerX,
+  centerY
+) {
   if (!pathConfig.startVertex || !pathConfig.endVertex) {
     return null;
   }
 
-  const startDir = getAngleForVertex(pathConfig.startVertex);
-  const endDir = getAngleForVertex(pathConfig.endVertex);
+  // Calculate angles from actual vertex coordinates to support non-square rectangles
+  // This ensures vertices are positioned correctly regardless of aspect ratio
+  const startDir = getAngleForVertexFromRect(pathConfig.startVertex, rect);
+  const endDir = getAngleForVertexFromRect(pathConfig.endVertex, rect);
+
   const delta =
     ((((endDir - startDir + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) %
       (2 * Math.PI)) -
@@ -194,14 +205,45 @@ export function computeSparkMetrics(pathConfig, globalConfig, rect, centerX, cen
 
   const ellipseCfg = pathConfig.ellipse || globalConfig.ellipse;
   let autoA = ellipseCfg?.a;
-  let bVal = ellipseCfg?.b ?? 0.0;
-  if (rect && autoA === undefined) {
+  let bVal = ellipseCfg?.b;
+
+  // Always calculate 'a' dynamically from BetSpot size if rect is available
+  // This ensures the ellipse scales with BetSpot size, ignoring config value
+  // Only use config value if rect is not available
+  if (rect) {
     autoA = calculateAutoA(rect, 10);
   } else if (autoA === undefined) {
     autoA = 150;
   }
 
-  const ellipseTiltDeg = pathConfig.ellipseTiltDeg ?? globalConfig.ellipseTiltDeg ?? 0;
+  // Calculate 'b' dynamically to maintain proportional ellipse shape
+  // If 'b' is not provided in config, calculate it relative to BetSpot size
+  // For non-square rectangles, scale b based on the smaller dimension
+  if (bVal === undefined || bVal === null) {
+    if (rect) {
+      // Calculate b proportionally to maintain similar ellipse shape
+      // Use the smaller dimension to ensure the ellipse fits well
+      // For 100x100 BetSpot: a ≈ 80.71, b = 20 (ratio ~4:1)
+      // For non-square: scale b based on min dimension to maintain aspect ratio
+      const minDimension = Math.min(rect.width, rect.height);
+      const maxDimension = Math.max(rect.width, rect.height);
+      // Scale b proportionally: maintain ~4:1 ratio with a
+      // But also account for aspect ratio - if very wide/tall, adjust
+      const aspectRatio = maxDimension / minDimension;
+      // Base calculation: minDimension * 0.2 (works for square)
+      // Adjust slightly for extreme aspect ratios
+      const baseB = minDimension * 0.2;
+      // For very wide/tall rectangles, reduce b slightly to keep ellipse proportional
+      bVal = baseB / Math.sqrt(aspectRatio);
+    } else {
+      // Fallback: maintain ratio with default a = 150
+      bVal = autoA * 0.2475; // Maintains ~4:1 ratio
+    }
+  } else {
+  }
+
+  const ellipseTiltDeg =
+    pathConfig.ellipseTiltDeg ?? globalConfig.ellipseTiltDeg ?? 0;
   const ellipseRotationDeg =
     pathConfig.ellipseRotationDeg ?? globalConfig.ellipseRotationDeg ?? 0;
 
@@ -218,7 +260,7 @@ export function computeSparkMetrics(pathConfig, globalConfig, rect, centerX, cen
     ellipseRotationDeg
   );
 
-  return {
+  const metrics = {
     pathLength: pathResult.pathLength,
     thetaEndLocal,
     actualThetaEnd: pathResult.actualThetaEnd,
@@ -235,6 +277,8 @@ export function computeSparkMetrics(pathConfig, globalConfig, rect, centerX, cen
     rectWidth: rect?.width,
     rectHeight: rect?.height,
   };
+
+  return metrics;
 }
 
 export function renderSpark(
@@ -250,7 +294,8 @@ export function renderSpark(
 ) {
   const headRadius = pathConfig.headRadius ?? globalConfig.headRadius ?? 10;
   const tailRadius = pathConfig.tailRadius ?? globalConfig.tailRadius ?? 2;
-  const sparkColor = pathConfig.sparkColor ?? globalConfig.sparkColor ?? "#ffff00";
+  const sparkColor =
+    pathConfig.sparkColor ?? globalConfig.sparkColor ?? "#ffff00";
   const glowColor = pathConfig.glowColor ?? globalConfig.glowColor ?? "#fff391";
   const glowRadius = pathConfig.glowRadius ?? globalConfig.glowRadius ?? 30;
 
@@ -401,4 +446,3 @@ export function renderSparkToPoints(
     });
   }
 }
-

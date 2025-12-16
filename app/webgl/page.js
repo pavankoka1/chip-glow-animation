@@ -6,6 +6,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BetMultiplier from "../components/BetMultiplier";
 import BetSpot from "../components/BetSpot";
 import BetSpotSelectorModal from "../components/BetSpotSelectorModal";
+import BetSpotSvg from "../components/BetSpotSvg";
 import Chip from "../components/Chip";
 import ConfigModal from "../components/ConfigModal";
 import { delayToSeconds } from "../components/canvas2d/utils";
@@ -153,10 +154,11 @@ export default function WebGLPage() {
       // },
       {
         id: 8,
-        type: "objectGlow",
+        type: "svg",
         delay: 540,
         animationTimeMs: 1000,
         enabled: true,
+        maxScale: 1.1, // Same as objectGlow default - scales BetSpot from 1.0 to 1.1
       },
       {
         id: 9,
@@ -164,19 +166,12 @@ export default function WebGLPage() {
         delay: 380,
         animationTimeMs: 14500,
         enabled: true,
-        borderWidth: 2.7,
         borderRadius: 6.75,
-        borderColor: "#FFE825",
-        tailColor: "#eaa13b",
-        lineWidth: 0,
-        headWidth: 5,
-        tailWidth: 2,
-        backgroundGradient: {
-          centerColor: "#834F03",
-          midColor: "#9C6004",
-          edgeColor: "#CE9404",
-          midStop: 40.8232,
-        },
+        // borderColor: "#FFE825",
+        headColor: "#ffeecc",
+        tailColor: "#fcbb60",
+        // borderWidth, headWidth, and tailWidth will be calculated dynamically
+        // based on BetSpotSvg border width calculation
       },
       {
         id: 10,
@@ -261,6 +256,11 @@ export default function WebGLPage() {
 
   // Store refs in a ref object (not accessed during render)
   const betspotRefsStorage = useRef({});
+  const svgRefsStorage = useRef({});
+  // Track max scale reached for each SVG to determine if opacity should stay at 1
+  const svgMaxScaleReachedRef = useRef({});
+  // Track previous scale to detect when we cross max threshold
+  const svgPreviousScaleRef = useRef({});
   const [anchorEls, setAnchorEls] = useState(() =>
     Array(betspotCount).fill(null)
   );
@@ -296,6 +296,24 @@ export default function WebGLPage() {
     },
     [createAnchorRefCallback]
   );
+
+  // Create SVG ref callback factory
+  const createSvgRefCallback = useCallback((index) => {
+    return (el) => {
+      svgRefsStorage.current[index] = el;
+    };
+  }, []);
+
+  const svgRefCallbacksRef = useRef({});
+  const getSvgRefCallback = useCallback(
+    (index) => {
+      if (!svgRefCallbacksRef.current[index]) {
+        svgRefCallbacksRef.current[index] = createSvgRefCallback(index);
+      }
+      return svgRefCallbacksRef.current[index];
+    },
+    [createSvgRefCallback]
+  );
   const [selectedBetspots, setSelectedBetspots] = useState(() =>
     Array(betspotCount).fill(true)
   );
@@ -328,75 +346,88 @@ export default function WebGLPage() {
   );
 
   // Helper function to apply glow effects directly to DOM (declared before use)
-  const applyGlowToElement = useCallback((element, intensities) => {
-    if (!element) return;
+  // SVG now handles background, border, and glow - only transform/scale needed
+  const applyGlowToElement = useCallback(
+    (element, intensities, index) => {
+      if (!element) return;
 
-    // Check if spin animation is active (has gradient background)
-    // If so, use the edge color (#CE9404) for the glow
-    const hasSpinGradient =
-      element.style.background &&
-      element.style.background.includes("radial-gradient");
-    const edgeColorRgb = hasSpinGradient
-      ? { r: 206, g: 148, b: 4 } // #CE9404
-      : { r: 253, g: 203, b: 61 }; // Default #fdcb3d
-    const glowColor = `rgba(${edgeColorRgb.r}, ${edgeColorRgb.g}, ${edgeColorRgb.b}, 1)`;
+      const glowScale = intensities?.glowScale || 1;
 
-    const chipGlowIntensity = intensities?.chipGlowIntensity || 0;
-    const perimeterGlowIntensity = intensities?.perimeterGlowIntensity || 0;
-    const glowScale = intensities?.glowScale || 1;
+      // Apply scale transformation to BetSpot
+      element.style.transform = `scale(${glowScale})`;
+      element.style.transformOrigin = "center center";
 
-    // Calculate glow effects
-    const chipGlowOpacity = chipGlowIntensity;
-    const chipGlowSpread = 30 * chipGlowIntensity * glowScale;
-    const chipGlowBlur = 20 * chipGlowIntensity * glowScale;
+      // Also apply to SVG if it exists (for rAF sync)
+      const svgElement = svgRefsStorage.current[index];
+      const hasSvgPath = config.paths?.some(
+        (p) => p.type === "svg" && p.enabled !== false
+      );
 
-    const perimeterGlowOpacity = perimeterGlowIntensity;
-    const perimeterGlowBlur = 10 * perimeterGlowIntensity * glowScale;
+      if (svgElement && hasSvgPath) {
+        const threshold = 1.09; // Slightly below max (1.1) to account for floating point precision
+        const previousScale = svgPreviousScaleRef.current[index] || 1.0;
+        const wasMaxReached = svgMaxScaleReachedRef.current[index] || false;
 
-    // Combine both glows
-    const hasChipGlow = chipGlowIntensity > 0;
-    const hasPerimeterGlow = perimeterGlowIntensity > 0;
+        // Detect when we cross the max scale threshold (reaching or exceeding threshold)
+        // Once we've reached max scale, lock opacity at 1 for the rest of the animation
+        if (glowScale >= threshold) {
+          svgMaxScaleReachedRef.current[index] = true;
+        }
 
-    // Apply styles directly to DOM
-    // Base chip color with glow overlay (only if not using gradient background)
-    if (!hasSpinGradient) {
-      element.style.backgroundColor = hasChipGlow
-        ? `rgba(${166 + (253 - 166) * chipGlowOpacity}, ${
-            96 + (203 - 96) * chipGlowOpacity
-          }, ${37 + (61 - 37) * chipGlowOpacity}, 1)`
-        : "#a4242f";
-    }
+        // Detect peak: if we were going up and now going down, we've peaked
+        // This catches cases where scale never exactly reaches 1.1 but peaks around 1.099
+        if (
+          !wasMaxReached &&
+          previousScale > 1.05 &&
+          glowScale < previousScale
+        ) {
+          svgMaxScaleReachedRef.current[index] = true;
+        }
 
-    // Box shadow for chip glow (covers entire chip)
-    element.style.boxShadow = hasChipGlow
-      ? `inset 0 0 ${chipGlowBlur}px ${glowColor.replace(
-          "1)",
-          `${chipGlowOpacity})`
-        )}, 0 0 ${chipGlowSpread}px ${glowColor.replace(
-          "1)",
-          `${chipGlowOpacity * 0.6})`
-        )}`
-      : "none";
+        // Store current scale for next frame
+        svgPreviousScaleRef.current[index] = glowScale;
 
-    // Filter for perimeter glow (around edges) - uses edge color when spin is active
-    element.style.filter = hasPerimeterGlow
-      ? `drop-shadow(0 0 ${perimeterGlowBlur}px ${glowColor.replace(
-          "1)",
-          `${perimeterGlowOpacity * 0.8})`
-        )})`
-      : "none";
+        // Opacity logic:
+        // - First half: opacity goes from 0 to 1 as scale goes from 1.0 to 1.1
+        // - Second half: opacity stays at 1 (even as scale goes from 1.1 back to 1.0)
+        // Once we've reached max scale, opacity stays at 1 regardless of current scale
+        let opacity;
+        const isMaxReached = svgMaxScaleReachedRef.current[index];
+        if (isMaxReached) {
+          // We've reached max scale at some point, opacity stays at 1
+          opacity = 1;
+        } else {
+          // First half: opacity goes from 0 to 1 as scale goes from 1.0 to 1.1
+          opacity = Math.min(1, Math.max(0, (glowScale - 1) / 0.1));
+        }
 
-    // Smooth scale transformation for the entire chip
-    element.style.transform = `scale(${glowScale})`;
-    element.style.transformOrigin = "center center";
-  }, []);
+        svgElement.style.opacity = opacity;
+        svgElement.style.transform = `scale(${glowScale})`;
+        svgElement.style.transformOrigin = "center center";
+
+        // Set BetSpot border radius to match SVG (6.75px) when SVG animation is active
+        // SVG is active when opacity > 0 (animation has started) or scale !== 1.0
+        const isSvgActive = opacity > 0 || glowScale !== 1.0;
+        if (isSvgActive) {
+          element.style.borderRadius = "6.75px";
+        } else {
+          // Remove border radius when SVG animation is not active
+          element.style.borderRadius = "";
+        }
+      } else {
+        // No SVG path or SVG element - remove border radius
+        element.style.borderRadius = "";
+      }
+    },
+    [config]
+  );
 
   // Apply initial glow effects and reset when needed (fallback for state-based updates)
   useEffect(() => {
     glowIntensities.forEach((intensity, index) => {
       const element = betspotRefsStorage.current[index];
       if (element) {
-        applyGlowToElement(element, intensity);
+        applyGlowToElement(element, intensity, index);
       }
     });
   }, [glowIntensities, applyGlowToElement]);
@@ -436,6 +467,9 @@ export default function WebGLPage() {
       Array.from({ length: betspotCount }, (_, i) => {
         // Preserve existing values if available
         const existing = prev[i];
+        // Reset max scale reached flag and previous scale when betspot count changes
+        svgMaxScaleReachedRef.current[i] = false;
+        svgPreviousScaleRef.current[i] = 1.0;
         return (
           existing || {
             chipGlowIntensity: 0,
@@ -464,19 +498,51 @@ export default function WebGLPage() {
   };
 
   const handleAnimationComplete = useCallback((betspotIndex) => {
+    console.log("[PLAY_BUTTON] handleAnimationComplete called", {
+      betspotIndex,
+      timestamp: Date.now(),
+    });
+
+    // Reset max scale reached flag and previous scale when animation completes
+    svgMaxScaleReachedRef.current[betspotIndex] = false;
+    svgPreviousScaleRef.current[betspotIndex] = 1.0;
+
+    // Remove border radius from BetSpot when animation completes
+    const element = betspotRefsStorage.current[betspotIndex];
+    if (element) {
+      element.style.borderRadius = "";
+    }
+
+    // Update isPlaying state - use functional update to ensure we get latest state
     setIsPlaying((prev) => {
-      // Only update if this betspot was actually playing
+      const currentSelected = selectedBetspotsRef.current;
+      console.log("[PLAY_BUTTON] setIsPlaying functional update", {
+        betspotIndex,
+        prevState: [...prev],
+        prevBetspotPlaying: prev[betspotIndex],
+        selectedBetspots: [...currentSelected],
+      });
+
+      // Check if this betspot was playing
       if (prev[betspotIndex] === true) {
         const newPlaying = [...prev];
         newPlaying[betspotIndex] = false;
-        // Force a new array reference to ensure React detects the change
+        // Update ref to keep it in sync
+        isPlayingRef.current = newPlaying;
+        console.log("[PLAY_BUTTON] Updated isPlaying state", {
+          betspotIndex,
+          newState: [...newPlaying],
+          refUpdated: isPlayingRef.current,
+        });
         return newPlaying;
       }
-      // Return same reference if no change to prevent unnecessary re-renders
+      // Return same reference if no change
+      console.log("[PLAY_BUTTON] No state change needed", {
+        betspotIndex,
+        reason: "betspot was not playing",
+      });
       return prev;
     });
-    // Force a re-render by updating a dummy state if needed
-    // The isAnyPlaying memo should recalculate automatically
   }, []);
 
   // Create memoized handlers for each betspot to prevent infinite loops
@@ -612,7 +678,7 @@ export default function WebGLPage() {
           // Apply glow directly to DOM immediately (bypasses React state)
           const element = betspotRefsStorage.current[index];
           if (element) {
-            applyGlowToElement(element, intensities);
+            applyGlowToElement(element, intensities, index);
           }
 
           // Also queue for state update (for tracking purposes)
@@ -656,6 +722,11 @@ export default function WebGLPage() {
     const result = isPlaying.some(
       (playing, index) => selectedBetspots[index] && playing
     );
+    console.log("[PLAY_BUTTON] isAnyPlaying calculated", {
+      result,
+      isPlaying: [...isPlaying],
+      selectedBetspots: [...selectedBetspots],
+    });
     return result;
   }, [isPlaying, selectedBetspots]);
 
@@ -705,6 +776,14 @@ export default function WebGLPage() {
             className="relative flex items-center justify-center"
           >
             <MemoizedBetSpot ref={getAnchorRefCallback(index)} />
+            {config.paths?.some(
+              (p) => p.type === "svg" && p.enabled !== false
+            ) && (
+              <BetSpotSvg
+                betspotRef={{ current: anchorEls[index] }}
+                svgRef={getSvgRefCallback(index)}
+              />
+            )}
             <Chip />
             {/* Render multiple multipliers based on config */}
             {config.paths

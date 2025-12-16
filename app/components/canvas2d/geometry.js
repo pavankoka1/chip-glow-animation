@@ -32,6 +32,30 @@ export function getVertexCoords(vertexId, rect) {
   return coords[vertexId] || [halfWidth, -halfHeight];
 }
 
+/**
+ * Calculate the actual angle for a vertex based on its coordinates relative to center
+ * This accounts for non-square aspect ratios
+ * @param {string} vertexId - Vertex identifier (TL, TR, BR, BL, L, R, T, B)
+ * @param {Object} rect - Rectangle with width and height
+ * @returns {number} Angle in radians (screen space: y increases downward)
+ */
+export function getAngleForVertexFromRect(vertexId, rect) {
+  if (!rect) {
+    // Fallback to fixed angles if no rect (assumes square)
+    return getAngleForVertex(vertexId);
+  }
+
+  const [x, y] = getVertexCoords(vertexId, rect);
+
+  // Calculate angle from coordinates
+  // atan2(y, x) expects y to increase upward (standard math coordinates)
+  // In screen space: y increases downward, so we negate y to convert
+  // This gives us the correct angle to the vertex from center
+  const angle = Math.atan2(-y, x);
+
+  return angle;
+}
+
 export function getEllipsePosition2D(
   theta,
   a,
@@ -140,4 +164,3 @@ function normalizeDelta(angle) {
   a = ((((a + Math.PI) % twoPi) + twoPi) % twoPi) - Math.PI;
   return a;
 }
-
