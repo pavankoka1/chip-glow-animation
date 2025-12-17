@@ -2,7 +2,7 @@
 
 import { PlayArrow, PlaylistPlay, Settings, Stop } from "@mui/icons-material";
 import { IconButton } from "@mui/material";
-import { memo, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import BetMultiplier from "../components/BetMultiplier";
 import BetSpot from "../components/BetSpot";
 import BetSpotSelectorModal from "../components/BetSpotSelectorModal";
@@ -16,7 +16,7 @@ import { useAnimationState } from "./hooks/useAnimationState";
 import { useGlowEffects } from "./hooks/useGlowEffects";
 
 const MemoizedBetSpot = memo(BetSpot);
-const MemoizedBetMultiplier = BetMultiplier;
+const MemoizedBetMultiplier = memo(BetMultiplier);
 
 const MemoizedGlowAnimationWebGL = memo(
   GlowAnimationWebGL,
@@ -24,12 +24,15 @@ const MemoizedGlowAnimationWebGL = memo(
     return (
       prevProps.anchorEl === nextProps.anchorEl &&
       prevProps.isPlaying === nextProps.isPlaying &&
-      prevProps.config === nextProps.config
+      prevProps.config === nextProps.config &&
+      prevProps.onAnimationComplete === nextProps.onAnimationComplete &&
+      prevProps.onGlowIntensityChange === nextProps.onGlowIntensityChange &&
+      prevProps.onTimeUpdate === nextProps.onTimeUpdate
     );
   }
 );
 
-const GRID_LAYOUT = { cols: 1, rows: 1 };
+const GRID_LAYOUT = { cols: 3, rows: 1 };
 
 export default function WebGLPage() {
   const animationState = useAnimationState(DEFAULT_CONFIG);
@@ -71,6 +74,19 @@ export default function WebGLPage() {
   );
   const prevBetspotCountRef = useRef(betspotCount);
 
+  const hasSvgPath = useMemo(
+    () => config.paths?.some((p) => p.type === "svg" && p.enabled !== false),
+    [config.paths]
+  );
+
+  const multiplierPaths = useMemo(
+    () =>
+      config.paths?.filter(
+        (p) => p.type === "multiplier" && p.enabled !== false
+      ) || [],
+    [config.paths]
+  );
+
   const { handleAnimationComplete, handleTimeUpdate } = useAnimationHandlers(
     betspotCount,
     config,
@@ -92,7 +108,8 @@ export default function WebGLPage() {
 
     setAnchorEls((prev) => {
       const newEls = new Array(betspotCount).fill(null);
-      for (let i = 0; i < Math.min(prev.length, betspotCount); i++) {
+      const minLen = Math.min(prev.length, betspotCount);
+      for (let i = 0; i < minLen; i++) {
         newEls[i] = prev[i];
       }
       return newEls;
@@ -101,11 +118,16 @@ export default function WebGLPage() {
     multiplierRefs.current = Array.from({ length: betspotCount }, () => []);
     currentTimeSecRefs.current = Array.from({ length: betspotCount }, () => 0);
 
+    const maxScaleRef = svgMaxScaleReachedRef.current;
+    const prevScaleRef = svgPreviousScaleRef.current;
+    const glowPeakRef = svgGlowPeakReachedRef.current;
+    const originalSizeRef = betspotOriginalSizeRef.current;
+
     for (let i = 0; i < betspotCount; i++) {
-      svgMaxScaleReachedRef.current[i] = false;
-      svgPreviousScaleRef.current[i] = 1;
-      svgGlowPeakReachedRef.current[i] = false;
-      delete betspotOriginalSizeRef.current[i];
+      maxScaleRef[i] = false;
+      prevScaleRef[i] = 1;
+      glowPeakRef[i] = false;
+      delete originalSizeRef[i];
     }
   }, [
     betspotCount,
@@ -116,65 +138,127 @@ export default function WebGLPage() {
     betspotOriginalSizeRef,
   ]);
 
+  const gridStyle = useMemo(
+    () => ({
+      gridTemplateColumns: `repeat(${GRID_LAYOUT.cols}, 1fr)`,
+      gridTemplateRows: `repeat(${GRID_LAYOUT.rows}, 1fr)`,
+      gap: "20px",
+    }),
+    []
+  );
+
+  const multiplierRefCallbacksRef = useRef(new Map());
+
+  const getMultiplierRefCallback = useCallback((index, pathIndex) => {
+    const key = `${index}-${pathIndex}`;
+    if (!multiplierRefCallbacksRef.current.has(key)) {
+      multiplierRefCallbacksRef.current.set(key, (el) => {
+        if (!multiplierRefs.current[index]) {
+          multiplierRefs.current[index] = [];
+        }
+        multiplierRefs.current[index][pathIndex] = el;
+      });
+    }
+    return multiplierRefCallbacksRef.current.get(key);
+  }, []);
+
+  const animationCompleteHandlersRef = useRef(new Map());
+
+  const getAnimationCompleteHandler = useCallback(
+    (index) => {
+      if (!animationCompleteHandlersRef.current.has(index)) {
+        animationCompleteHandlersRef.current.set(index, () =>
+          handleAnimationComplete(index)
+        );
+      }
+      return animationCompleteHandlersRef.current.get(index);
+    },
+    [handleAnimationComplete]
+  );
+
+  const timeUpdateHandlersRef = useRef(new Map());
+
+  const getTimeUpdateHandler = useCallback(
+    (index) => {
+      if (!timeUpdateHandlersRef.current.has(index)) {
+        timeUpdateHandlersRef.current.set(index, (currentTimeSec) =>
+          handleTimeUpdate(index, currentTimeSec)
+        );
+      }
+      return timeUpdateHandlersRef.current.get(index);
+    },
+    [handleTimeUpdate]
+  );
+
+  const betspotIndices = useMemo(
+    () => Array.from({ length: betspotCount }, (_, i) => i),
+    [betspotCount]
+  );
+
+  const handleOpenSelector = useCallback(
+    () => setSelectorOpen(true),
+    [setSelectorOpen]
+  );
+  const handleOpenConfig = useCallback(
+    () => setConfigOpen(true),
+    [setConfigOpen]
+  );
+  const handleCloseConfig = useCallback(
+    () => setConfigOpen(false),
+    [setConfigOpen]
+  );
+  const handleCloseSelector = useCallback(
+    () => setSelectorOpen(false),
+    [setSelectorOpen]
+  );
+
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-black">
-      <div
-        className="grid"
-        style={{
-          gridTemplateColumns: `repeat(${GRID_LAYOUT.cols}, 1fr)`,
-          gridTemplateRows: `repeat(${GRID_LAYOUT.rows}, 1fr)`,
-          gap: "20px",
-        }}
-      >
-        {Array.from({ length: betspotCount }).map((_, index) => (
-          <div
-            key={`betspot-${index}`}
-            className="relative flex items-center justify-center"
-            style={{ overflow: "visible" }}
-          >
-            <MemoizedBetSpot ref={getAnchorRefCallback(index)} />
-            {config.paths?.some(
-              (p) => p.type === "svg" && p.enabled !== false
-            ) && (
-              <BetSpotSvg
-                betspotRef={{ current: anchorEls[index] }}
-                svgRef={getSvgRefCallback(index)}
-              />
-            )}
-            <Chip />
-            {config.paths
-              ?.filter((p) => p.type === "multiplier" && p.enabled !== false)
-              .map((multiplierPath, pathIndex) => (
+      <div className="grid" style={gridStyle}>
+        {betspotIndices.map((index) => {
+          const anchorEl = anchorEls[index];
+          const isActive = anchorEl && activeBetspotIndices.includes(index);
+          const shouldPlay = isPlaying[index] && selectedBetspots[index];
+
+          return (
+            <div
+              key={`betspot-${index}`}
+              className="relative flex items-center justify-center"
+              style={{ overflow: "visible" }}
+            >
+              <MemoizedBetSpot ref={getAnchorRefCallback(index)} />
+              {hasSvgPath && (
+                <BetSpotSvg
+                  betspotRef={{ current: anchorEl }}
+                  svgRef={getSvgRefCallback(index)}
+                />
+              )}
+              <Chip />
+              {multiplierPaths.map((multiplierPath, pathIndex) => (
                 <MemoizedBetMultiplier
                   key={`multiplier-${index}-${multiplierPath.id || pathIndex}`}
                   text={multiplierPath.text || "50x"}
-                  ref={(el) => {
-                    if (!multiplierRefs.current[index]) {
-                      multiplierRefs.current[index] = [];
-                    }
-                    multiplierRefs.current[index][pathIndex] = el;
-                  }}
+                  ref={getMultiplierRefCallback(index, pathIndex)}
                 />
               ))}
-            {anchorEls[index] && activeBetspotIndices.includes(index) && (
-              <MemoizedGlowAnimationWebGL
-                key={`glow-${index}-${isPlaying[index]}`}
-                anchorEl={anchorEls[index]}
-                config={config}
-                isPlaying={isPlaying[index] && selectedBetspots[index]}
-                onAnimationComplete={() => handleAnimationComplete(index)}
-                onGlowIntensityChange={getGlowIntensityHandler(index)}
-                onTimeUpdate={(currentTimeSec) => {
-                  handleTimeUpdate(index, currentTimeSec);
-                }}
-              />
-            )}
-          </div>
-        ))}
+              {isActive && (
+                <MemoizedGlowAnimationWebGL
+                  key={`glow-${index}-${shouldPlay}`}
+                  anchorEl={anchorEl}
+                  config={config}
+                  isPlaying={shouldPlay}
+                  onAnimationComplete={getAnimationCompleteHandler(index)}
+                  onGlowIntensityChange={getGlowIntensityHandler(index)}
+                  onTimeUpdate={getTimeUpdateHandler(index)}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <IconButton
-        onClick={() => setSelectorOpen(true)}
+        onClick={handleOpenSelector}
         sx={{
           position: "fixed",
           top: 16,
@@ -220,7 +304,7 @@ export default function WebGLPage() {
       </IconButton>
 
       <IconButton
-        onClick={() => setConfigOpen(true)}
+        onClick={handleOpenConfig}
         sx={{
           position: "fixed",
           top: 16,
@@ -238,14 +322,14 @@ export default function WebGLPage() {
 
       <ConfigModal
         open={configOpen}
-        onClose={() => setConfigOpen(false)}
+        onClose={handleCloseConfig}
         config={config}
         onConfigChange={setConfig}
       />
 
       <BetSpotSelectorModal
         open={selectorOpen}
-        onClose={() => setSelectorOpen(false)}
+        onClose={handleCloseSelector}
         betspotCount={betspotCount}
         selectedBetspots={selectedBetspots}
         onSelectionChange={handleSelectionChange}

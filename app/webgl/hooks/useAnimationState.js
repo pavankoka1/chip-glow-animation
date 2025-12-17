@@ -21,7 +21,7 @@ export function useAnimationState(initialConfig) {
       const j = Math.floor((pseudoRandom / 233280) * (i + 1));
       [indices[i], indices[j]] = [indices[j], indices[i]];
     }
-    return indices.slice(0, Math.min(5, betspotCount));
+    return indices;
   }, [betspotCount]);
 
   const [anchorEls, setAnchorEls] = useState(() =>
