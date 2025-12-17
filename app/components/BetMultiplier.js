@@ -6,7 +6,7 @@ const BetMultiplier = forwardRef(function BetMultiplier({ text = "50x" }, ref) {
       ref={ref}
       className="absolute flex items-center justify-center pointer-events-none"
       style={{
-        transform: "translate(-50%, -50%) scale(0)",
+        transform: "translate(-50%, -50%) scale(0) translateZ(0)",
         opacity: "0",
         willChange: "transform, opacity",
         zIndex: 100,
