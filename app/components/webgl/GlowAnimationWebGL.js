@@ -852,6 +852,8 @@ export default function GlowAnimationWebGL({
             sparkColorRgb,
             glowColorRgb,
             glowRadius,
+            dotCount,
+            length,
             fadeInSec,
             fadeOutSec,
           } = precomputedPath;
@@ -953,7 +955,9 @@ export default function GlowAnimationWebGL({
               tailRadius,
               sparkColorRgb,
               glowColorRgb,
-              glowRadius
+              glowRadius,
+              dotCount,
+              length
             );
             for (let i = sparkStartIdx; i < otherPoints.length; i++) {
               otherPoints[i]._skipOffset = true;

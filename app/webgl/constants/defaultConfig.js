@@ -1,7 +1,7 @@
 export const DEFAULT_CONFIG = {
-  betspotCount: 5,
+  betspotCount: 1,
   glowRadius: 5,
-  ellipse: { b: 20, a: 76 },
+  ellipse: { b: 12 },
   headRadius: 5,
   tailRadius: 1,
   sparkColor: "#f1eb9d",
@@ -17,6 +17,10 @@ export const DEFAULT_CONFIG = {
       ellipseTiltDeg: -45,
       ellipseRotationDeg: -2,
       sparkColor: "#f1eb9d",
+      headRadius: 2,
+      tailRadius: 0.4,
+      length: 5.0,
+      dotCount: 25,
       enabled: true,
     },
     {
@@ -29,6 +33,10 @@ export const DEFAULT_CONFIG = {
       ellipseTiltDeg: 45,
       ellipseRotationDeg: 2,
       sparkColor: "#f1eb9d",
+      headRadius: 2,
+      tailRadius: 0.4,
+      length: 5.0,
+      dotCount: 25,
       enabled: true,
     },
     {
@@ -39,6 +47,10 @@ export const DEFAULT_CONFIG = {
       delay: 380,
       animationTimeMs: 1040,
       sparkColor: "#f1eb9d",
+      headRadius: 2,
+      tailRadius: 0.4,
+      length: 5.0,
+      dotCount: 25,
       enabled: true,
     },
     {

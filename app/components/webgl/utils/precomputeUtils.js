@@ -32,6 +32,8 @@ export function precomputePathData(path, cfg) {
   const sparkColor = path.sparkColor ?? cfg.sparkColor ?? "#ffff00";
   const glowColor = path.glowColor ?? cfg.glowColor ?? "#fff391";
   const glowRadius = path.glowRadius ?? cfg.glowRadius ?? 30;
+  const dotCount = path.dotCount ?? cfg.dotCount ?? null;
+  const length = path.length ?? cfg.length ?? null;
 
   // Pre-compute color RGB values (normalized)
   const sparkColorRgbRaw = hexToRgb(sparkColor);
@@ -133,6 +135,8 @@ export function precomputePathData(path, cfg) {
     sparkColor,
     glowColor,
     glowRadius,
+    dotCount,
+    length,
     sparkColorRgb,
     glowColorRgb,
 

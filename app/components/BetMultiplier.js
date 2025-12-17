@@ -18,7 +18,7 @@ const BetMultiplier = forwardRef(function BetMultiplier({ text = "50x" }, ref) {
       <span className="relative inline-block" style={{ lineHeight: 1 }}>
         {/* Border/Stroke layer - behind */}
         <span
-          className="text-5xl font-extrabold absolute"
+          className="text-xl font-extrabold absolute"
           style={{
             left: 0,
             top: 0,
@@ -33,7 +33,7 @@ const BetMultiplier = forwardRef(function BetMultiplier({ text = "50x" }, ref) {
         </span>
         {/* Gradient fill layer - on top */}
         <span
-          className="text-5xl font-extrabold relative"
+          className="text-xl font-extrabold relative"
           style={{
             background: "linear-gradient(to bottom, #feeda1, #f2f3ef, #feeda1)",
             WebkitBackgroundClip: "text",

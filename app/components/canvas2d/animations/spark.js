@@ -211,28 +211,35 @@ export function computeSparkMetrics(
   // This ensures the ellipse scales with BetSpot size, ignoring config value
   // Only use config value if rect is not available
   if (rect) {
-    autoA = calculateAutoA(rect, 10);
+    // For smaller betspots, reduce the offset to decrease 'a' appropriately
+    // For 100x100: offset 10 gives a ≈ 80.71
+    // For 43x46: reduce offset to 5 to get a ≈ 36.49 (instead of 41.49)
+    const minDimension = Math.min(rect.width, rect.height);
+    const offset = minDimension < 50 ? 6 : 10;
+    autoA = calculateAutoA(rect, offset);
   } else if (autoA === undefined) {
     autoA = 150;
   }
 
   // Calculate 'b' dynamically to maintain proportional ellipse shape
   // If 'b' is not provided in config, calculate it relative to BetSpot size
-  // For non-square rectangles, scale b based on the smaller dimension
+  // Scale b proportionally with 'a' to maintain consistent ellipse shape across different betspot sizes
   if (bVal === undefined || bVal === null) {
     if (rect) {
-      // Calculate b proportionally to maintain similar ellipse shape
-      // Use the smaller dimension to ensure the ellipse fits well
-      // For 100x100 BetSpot: a ≈ 80.71, b = 20 (ratio ~4:1)
-      // For non-square: scale b based on min dimension to maintain aspect ratio
+      // Calculate b proportionally to 'a' to maintain consistent visual appearance
+      // For 100x100 BetSpot: a ≈ 80.71, b = 20 (ratio ~4:1, b/a ≈ 0.248)
+      // For smaller betspots (like 43x46), we need proportionally smaller b values
       const minDimension = Math.min(rect.width, rect.height);
       const maxDimension = Math.max(rect.width, rect.height);
-      // Scale b proportionally: maintain ~4:1 ratio with a
-      // But also account for aspect ratio - if very wide/tall, adjust
       const aspectRatio = maxDimension / minDimension;
-      // Base calculation: minDimension * 0.2 (works for square)
-      // Adjust slightly for extreme aspect ratios
-      const baseB = minDimension * 0.2;
+
+      // Calculate b based on 'a' to maintain proportional scaling
+      // For smaller betspots (< 50px), use a reduced ratio to decrease b appropriately
+      // This ensures the ellipse doesn't appear too wide for smaller betspots
+      const baseRatio = minDimension < 50 ? 0.18 : 0.248;
+      const baseB = autoA * baseRatio;
+
+      // For non-square rectangles, adjust slightly based on aspect ratio
       // For very wide/tall rectangles, reduce b slightly to keep ellipse proportional
       bVal = baseB / Math.sqrt(aspectRatio);
     } else {
@@ -383,7 +390,9 @@ export function renderSparkToPoints(
   tailRadius,
   sparkColorRgb,
   glowColorRgb,
-  glowRadius
+  glowRadius,
+  dotCount,
+  length
 ) {
   const centerX = metrics.centerX;
   const centerY = metrics.centerY;
@@ -401,11 +410,18 @@ export function renderSparkToPoints(
   const initialPathRange = Math.abs(initialPathEndTheta - thetaStartLocal);
   const initialPathRatio = initialPathRange / Math.max(totalPathRange, EPSILON);
 
-  const sampleCount = isMobileDevice() ? MOBILE_SAMPLE_COUNT : SAMPLE_COUNT;
+  // Use dotCount from config if provided, otherwise fall back to default
+  const sampleCount =
+    dotCount ?? (isMobileDevice() ? MOBILE_SAMPLE_COUNT : SAMPLE_COUNT);
+
+  // Apply length multiplier to the span (0-1, where 1 means full span)
+  const lengthMultiplier = length ?? 1.0;
+  const effectiveSpan = totalSpan * lengthMultiplier;
+  const effectiveSegHead = segTail + (segHead - segTail) * lengthMultiplier;
 
   for (let i = 0; i <= sampleCount; i++) {
-    const t = segTail + (segHead - segTail) * (i / sampleCount);
-    const tClamped = Math.max(0, Math.min(totalSpan, t));
+    const t = segTail + (effectiveSegHead - segTail) * (i / sampleCount);
+    const tClamped = Math.max(0, Math.min(effectiveSpan, t));
 
     const [x, y] = getSparkPathPosition(
       tClamped,

@@ -29,7 +29,7 @@ const MemoizedGlowAnimationWebGL = memo(
   }
 );
 
-const GRID_LAYOUT = { cols: 5, rows: 1 };
+const GRID_LAYOUT = { cols: 1, rows: 1 };
 
 export default function WebGLPage() {
   const animationState = useAnimationState(DEFAULT_CONFIG);
