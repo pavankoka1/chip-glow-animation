@@ -1,23 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-
-// Animation modules
 import * as circleAnimation from "../canvas2d/animations/circle";
 import * as lineAnimation from "../canvas2d/animations/line";
 import * as sparkAnimation from "../canvas2d/animations/spark";
 import * as spinAnimation from "../canvas2d/animations/spin";
-
-// Constants
-import {
-  BORDER_OPACITY_THRESHOLD,
-  DEFAULT_CONFIG,
-  EPSILON,
-  GLOW_INTENSITY_THRESHOLD,
-  MAX_DT_SEC,
-} from "./constants/constants";
-
-// Utils - Direct imports for performance (avoid re-export overhead)
 import {
   applyEasingCircle,
   applyEasingLine,
@@ -25,19 +12,22 @@ import {
 } from "../canvas2d/easing";
 import { calculateAutoA, getDynamicRotAngle } from "../canvas2d/geometry";
 import {
-  findPrecomputedPathByType,
-  precomputeAllPaths,
-} from "./utils/precomputeUtils";
-
-// Config
-import {
   getSharedActivePaths,
   getSharedConfigCache,
   getSharedPathConstants,
   getSharedPrecomputedPaths,
 } from "./configs/configCache";
-
-// WebGL
+import {
+  BORDER_OPACITY_THRESHOLD,
+  DEFAULT_CONFIG,
+  EPSILON,
+  GLOW_INTENSITY_THRESHOLD,
+  MAX_DT_SEC,
+} from "./constants/constants";
+import {
+  findPrecomputedPathByType,
+  precomputeAllPaths,
+} from "./utils/precomputeUtils";
 import { fragmentShaderSource, vertexShaderSource } from "./webgl/shaders";
 import {
   createProgram,
@@ -59,8 +49,6 @@ export default function GlowAnimationWebGL({
   const animationIdRef = useRef(null);
   const lastTsRef = useRef(null);
   const accumulatedSecRef = useRef(0);
-  // Removed CPU monitoring and useFps hook to reduce overhead
-  // Using constant 60 FPS assumption for frame timing
   const anchorRectRef = useRef(null);
   const anchorCenterRef = useRef([0, 0]);
   const buffersRef = useRef({
@@ -83,14 +71,9 @@ export default function GlowAnimationWebGL({
     resolution: null,
     devicePixelRatio: null,
   });
-  const pointCountRef = useRef(0);
-  // Path metrics are per-instance (depend on anchorEl position)
   const pathMetricsRef = useRef(new Map());
-  // Pre-computed path data (static values that don't change during animation)
   const precomputedPathsRef = useRef([]);
-  // Cache device pixel ratio to avoid calling it every frame
   const devicePixelRatioRef = useRef(getDevicePixelRatio());
-  // Reusable Float32Array buffers to avoid allocations every frame
   const bufferRefs = useRef({
     positions: null,
     radii: null,
@@ -100,49 +83,33 @@ export default function GlowAnimationWebGL({
     glowRadii: null,
     maxPoints: 0,
   });
-  // Reusable arrays for points (reused instead of creating new ones)
   const pointsArraysRef = useRef({
     spinPoints: [],
     otherPoints: [],
     combinedPoints: [],
   });
-  // Store shader references for cleanup
   const shadersRef = useRef({ vertex: null, fragment: null });
-  // Track previous glow intensities to avoid unnecessary callbacks
   const prevGlowIntensitiesRef = useRef({
     chipGlowIntensity: 0,
     perimeterGlowIntensity: 0,
     glowScale: 1.0,
   });
-  // Track previous border opacity for spin animation
   const prevBorderOpacityRef = useRef(0);
-  // Track previous background gradient for spin animation
   const prevBackgroundGradientRef = useRef(null);
-  // Track if animation has actually started to avoid calling callback during initialization
   const hasAnimationStartedRef = useRef(false);
-  // Throttle glow intensity updates to reduce CPU usage
   const glowUpdateThrottleRef = useRef(false);
-  // Throttle time updates to reduce CPU usage
   const timeUpdateThrottleRef = useRef(false);
-  // Track last rect check time to throttle dimension checks
   const lastRectCheckRef = useRef(0);
-  // Store callback in ref to avoid adding it to dependency array (prevents animation reset)
   const onGlowIntensityChangeRef = useRef(onGlowIntensityChange);
-  // Store config in ref to prevent unnecessary re-runs
   const configRef = useRef(config);
-  // Store onAnimationComplete in ref
   const onAnimationCompleteRef = useRef(onAnimationComplete);
-  // Store onTimeUpdate in ref
   const onTimeUpdateRef = useRef(onTimeUpdate);
 
-  // Update refs when they change (without triggering useEffect re-run)
   useEffect(() => {
     onGlowIntensityChangeRef.current = onGlowIntensityChange;
     configRef.current = config;
     onAnimationCompleteRef.current = onAnimationComplete;
     onTimeUpdateRef.current = onTimeUpdate;
-    // Update precomputed paths when config changes (pre-compute during idle time)
-    // Use shared cache for multiple betspots - all use same config
     const cfg = getSharedConfigCache(config, DEFAULT_CONFIG);
     const activePaths = getSharedActivePaths(cfg);
     precomputedPathsRef.current = getSharedPrecomputedPaths(
@@ -152,19 +119,13 @@ export default function GlowAnimationWebGL({
     );
   }, [onGlowIntensityChange, config, onAnimationComplete, onTimeUpdate]);
 
-  // Removed useEffect for fps - using constant 60 FPS
-
   useEffect(() => {
     if (anchorEl?.getBoundingClientRect) {
-      // Get base dimensions from computed styles (before any CSS transforms)
-      // This ensures we get the actual element size, not the transformed size
       const computedStyle = window.getComputedStyle(anchorEl);
       const baseWidth = parseFloat(computedStyle.width) || anchorEl.offsetWidth;
       const baseHeight =
         parseFloat(computedStyle.height) || anchorEl.offsetHeight;
-
       const rect = anchorEl.getBoundingClientRect();
-      // Use base dimensions instead of transformed dimensions
       anchorRectRef.current = {
         ...rect,
         width: baseWidth,
@@ -196,8 +157,6 @@ export default function GlowAnimationWebGL({
     }
 
     glRef.current = gl;
-
-    // Capture refs for cleanup to satisfy linter
     const pathMetricsForCleanup = pathMetricsRef.current;
 
     try {
@@ -211,13 +170,10 @@ export default function GlowAnimationWebGL({
         gl.FRAGMENT_SHADER,
         fragmentShaderSource
       );
-      // Store shaders for cleanup
       shadersRef.current.vertex = vertexShader;
       shadersRef.current.fragment = fragmentShader;
       const program = createProgram(gl, vertexShader, fragmentShader);
       programRef.current = program;
-
-      // Capture values for cleanup function
       const vertexShaderForCleanup = vertexShader;
       const fragmentShaderForCleanup = fragmentShader;
       const programForCleanup = program;
@@ -283,8 +239,6 @@ export default function GlowAnimationWebGL({
         canvas.style.height = `${height}px`;
 
         gl.viewport(0, 0, canvas.width, canvas.height);
-
-        // Only set uniforms if program is valid
         if (program && programRef.current) {
           gl.useProgram(program);
           if (uniformsRef.current.resolution) {
@@ -300,7 +254,6 @@ export default function GlowAnimationWebGL({
         }
 
         if (anchorEl?.getBoundingClientRect) {
-          // Get base dimensions from computed styles (before any CSS transforms)
           const computedStyle = window.getComputedStyle(anchorEl);
           const baseWidth =
             parseFloat(computedStyle.width) || anchorEl.offsetWidth;
@@ -308,7 +261,7 @@ export default function GlowAnimationWebGL({
             parseFloat(computedStyle.height) || anchorEl.offsetHeight;
 
           const transformedRect = anchorEl.getBoundingClientRect();
-          // Use base dimensions, not transformed dimensions
+
           anchorRectRef.current = {
             ...transformedRect,
             width: baseWidth,
@@ -322,7 +275,7 @@ export default function GlowAnimationWebGL({
       };
 
       resizeCanvas();
-      // Store resize handler to properly remove it later
+
       const handleResize = () => {
         resizeCanvas();
       };
@@ -425,33 +378,20 @@ export default function GlowAnimationWebGL({
             const ellipseCfg = p.ellipse || cfg.ellipse;
             let autoA = ellipseCfg?.a;
             let bVal = ellipseCfg?.b;
-            // Always calculate autoA from rect if available, to ensure it scales with BetSpot size
-            // Only use config value if rect is not available
             if (rect) {
               autoA = calculateAutoA(rect, 10);
             } else if (autoA === undefined) {
               autoA = 150;
             }
-
-            // Calculate 'b' dynamically to maintain proportional ellipse shape
-            // If 'b' is not provided in config, calculate it relative to BetSpot size
-            // For non-square rectangles, scale b based on the smaller dimension
             if (bVal === undefined || bVal === null) {
               if (rect) {
-                // Calculate b proportionally to maintain similar ellipse shape
-                // Use the smaller dimension to ensure the ellipse fits well
                 const minDimension = Math.min(rect.width, rect.height);
                 const maxDimension = Math.max(rect.width, rect.height);
-                // Scale b proportionally: maintain ~4:1 ratio with a
-                // But also account for aspect ratio - if very wide/tall, adjust
                 const aspectRatio = maxDimension / minDimension;
-                // Base calculation: minDimension * 0.2 (works for square)
-                // Adjust slightly for extreme aspect ratios
                 const baseB = minDimension * 0.2;
-                // For very wide/tall rectangles, reduce b slightly to keep ellipse proportional
+
                 bVal = baseB / Math.sqrt(aspectRatio);
               } else {
-                // Fallback: maintain ratio with default a = 150
                 bVal = autoA * 0.2475; // Maintains ~4:1 ratio
               }
             } else {
@@ -488,17 +428,10 @@ export default function GlowAnimationWebGL({
           }
         }
       };
-
-      // Initial path metrics calculation - will be recalculated if rect dimensions change
       precalculatePathMetrics();
 
-      // Pre-computed paths are updated in the useEffect above when config changes
-      // This ensures they're ready before animation starts
-
-      // Also recalculate metrics when animation starts to ensure we have the latest rect
       const recalculateOnStart = () => {
         if (anchorEl?.getBoundingClientRect) {
-          // Get base dimensions from computed styles (before any CSS transforms)
           const computedStyle = window.getComputedStyle(anchorEl);
           const baseWidth =
             parseFloat(computedStyle.width) || anchorEl.offsetWidth;
@@ -507,14 +440,11 @@ export default function GlowAnimationWebGL({
 
           const transformedRect = anchorEl.getBoundingClientRect();
           const cachedRect = anchorRectRef.current;
-
-          // If base dimensions changed or weren't set, update and recalculate
           if (
             !cachedRect ||
             Math.abs(cachedRect.width - baseWidth) > 0.1 ||
             Math.abs(cachedRect.height - baseHeight) > 0.1
           ) {
-            // Use base dimensions, not transformed dimensions
             anchorRectRef.current = {
               ...transformedRect,
               width: baseWidth,
@@ -531,30 +461,24 @@ export default function GlowAnimationWebGL({
       };
 
       const animate = (ts) => {
-        // Removed CPU monitoring to reduce overhead
-
         if (!isPlaying) {
-          // Stop animation loop if it's still running
           if (animationIdRef.current) {
             cancelAnimationFrame(animationIdRef.current);
             animationIdRef.current = null;
           }
           gl.clearColor(0, 0, 0, 0);
           gl.clear(gl.COLOR_BUFFER_BIT);
-          // Reset glow ref but don't call callback here to avoid re-render loops
-          // The callback will be handled in the useEffect cleanup
           prevGlowIntensitiesRef.current = {
             chipGlowIntensity: 0,
             perimeterGlowIntensity: 0,
             glowScale: 1.0,
           };
-          // Reset border when animation stops
+
           if (anchorEl && prevBorderOpacityRef.current > 0) {
             prevBorderOpacityRef.current = 0;
             anchorEl.style.border = "none";
-            // Background color is now handled by SVG - don't set it here
           }
-          // Reset accumulated time
+
           accumulatedSecRef.current = 0;
           lastTsRef.current = null;
           hasAnimationStartedRef.current = false;
@@ -566,19 +490,15 @@ export default function GlowAnimationWebGL({
         lastTsRef.current = ts;
         accumulatedSecRef.current += dtSec;
 
-        // Removed CPU monitoring frame budget calculation
-
         const currentTimeSec = accumulatedSecRef.current;
 
-        // Update rect from anchorEl if available (to handle dynamic size changes)
-        // Check on first frame, then throttle to every ~100ms to avoid performance issues
         const now = performance.now();
         const shouldCheck =
           !lastRectCheckRef.current || now - lastRectCheckRef.current > 100;
 
         if (anchorEl?.getBoundingClientRect && shouldCheck) {
           lastRectCheckRef.current = now;
-          // Get base dimensions from computed styles (before any CSS transforms)
+
           const computedStyle = window.getComputedStyle(anchorEl);
           const baseWidth =
             parseFloat(computedStyle.width) || anchorEl.offsetWidth;
@@ -587,14 +507,11 @@ export default function GlowAnimationWebGL({
 
           const transformedRect = anchorEl.getBoundingClientRect();
           const oldRect = anchorRectRef.current;
-
-          // Check if base dimensions changed (ignore transform scaling)
           if (
             !oldRect ||
             Math.abs(oldRect.width - baseWidth) > 0.1 ||
             Math.abs(oldRect.height - baseHeight) > 0.1
           ) {
-            // Use base dimensions, not transformed dimensions
             anchorRectRef.current = {
               ...transformedRect,
               width: baseWidth,
@@ -604,18 +521,14 @@ export default function GlowAnimationWebGL({
               transformedRect.left + baseWidth / 2,
               transformedRect.top + baseHeight / 2,
             ];
-            // Clear cached metrics for all paths to force recalculation with new dimensions
-            // This ensures sparks adapt to the new BetSpot size
             pathMetricsRef.current.clear();
-            // Recalculate path metrics when dimensions change
+
             precalculatePathMetrics();
           }
         }
 
         const rect = anchorRectRef.current;
 
-        // Notify parent of current time for multiplier animations
-        // Throttle to every other frame to reduce CPU usage (30fps updates instead of 60fps)
         if (onTimeUpdateRef.current && isPlaying) {
           if (!timeUpdateThrottleRef.current) {
             timeUpdateThrottleRef.current = true;
@@ -625,26 +538,18 @@ export default function GlowAnimationWebGL({
             });
           }
         }
-
-        // Mark that animation has started after first frame
         if (!hasAnimationStartedRef.current && currentTimeSec > 0) {
           hasAnimationStartedRef.current = true;
         }
 
-        // Use cached config and paths (shared across all betspot instances)
-        // This avoids recalculating the same config for every betspot every frame
         const cfg = getSharedConfigCache(configRef.current, DEFAULT_CONFIG);
         const activePaths = getSharedActivePaths(cfg);
         const precomputedPaths = precomputedPathsRef.current;
-
-        // Early exit if no paths to animate
         if (activePaths.length === 0) {
           animationIdRef.current = requestAnimationFrame(animate);
           return;
         }
 
-        // Calculate glow intensities based on objectGlow path (id 8)
-        // Use pre-computed path data
         const objectGlowPath = findPrecomputedPathByType(
           precomputedPaths,
           "objectGlow"
@@ -652,15 +557,12 @@ export default function GlowAnimationWebGL({
         let chipGlowIntensity = 0;
         let perimeterGlowIntensity = 0;
         let glowScale = 1.0;
-
-        // Handle svg animation (replaces objectGlow for BetSpot scaling)
         const svgPath = findPrecomputedPathByType(precomputedPaths, "svg");
         if (svgPath && svgPath.svgData) {
           const elapsed = Math.max(0, currentTimeSec - svgPath.delaySec);
 
           if (elapsed >= 0) {
             if (elapsed < svgPath.durationSec) {
-              // During animation
               const normalizedTime = Math.min(
                 1.0,
                 elapsed / svgPath.durationSec
@@ -669,23 +571,19 @@ export default function GlowAnimationWebGL({
                 svgPath.svgData;
 
               if (normalizedTime <= firstHalfDuration) {
-                // First half: scale from 1.0 to maxScale
                 const progress = normalizedTime / firstHalfDuration;
                 glowScale = 1.0 + scaleRange * progress;
               } else {
-                // Second half: scale from maxScale back to 1.0
                 const progress =
                   (normalizedTime - firstHalfDuration) /
                   (1.0 - firstHalfDuration);
                 glowScale = maxScale - scaleRange * progress;
               }
             } else {
-              // After animation completes: stay at 1.0 until animation ends
               glowScale = 1.0;
             }
           }
         } else if (objectGlowPath) {
-          // Fallback to objectGlow if svg is not present
           const elapsed = Math.max(0, currentTimeSec - objectGlowPath.delaySec);
 
           if (elapsed > 0 && elapsed < objectGlowPath.durationSec) {
@@ -697,13 +595,11 @@ export default function GlowAnimationWebGL({
               objectGlowPath.objectGlowData;
 
             if (normalizedTime <= firstHalfDuration) {
-              // First 500ms: glow increases 0-100%, scale 1.0-1.1
               const progress = normalizedTime / firstHalfDuration;
               chipGlowIntensity = intensityRange * progress;
               perimeterGlowIntensity = intensityRange * progress;
               glowScale = 1.0 + scaleRange * progress;
             } else {
-              // Last 500ms: glow decreases 100%-0%, scale 1.1-1.0
               const progress =
                 (normalizedTime - firstHalfDuration) /
                 (1.0 - firstHalfDuration);
@@ -713,8 +609,6 @@ export default function GlowAnimationWebGL({
             }
           }
         }
-
-        // Handle border for spin animation
         const spinPath = findPrecomputedPathByType(precomputedPaths, "spin");
         let borderOpacity = 0;
         if (spinPath && anchorEl && spinPath.spinBorderData) {
@@ -722,25 +616,16 @@ export default function GlowAnimationWebGL({
           const { fadeInSec, fadeOutSec } = spinPath.spinBorderData;
 
           if (elapsed > 0 && elapsed < spinPath.durationSec) {
-            // Fade in
             if (elapsed < fadeInSec) {
               borderOpacity = elapsed / fadeInSec;
-            }
-            // Full opacity
-            else if (elapsed < spinPath.durationSec - fadeOutSec) {
+            } else if (elapsed < spinPath.durationSec - fadeOutSec) {
               borderOpacity = 1.0;
-            }
-            // Fade out
-            else {
+            } else {
               const timeUntilEnd = spinPath.durationSec - elapsed;
               borderOpacity = timeUntilEnd / fadeOutSec;
             }
           }
-
-          // Extract backgroundGradient from spinBorderData for use in both branches
           const { backgroundGradient } = spinPath.spinBorderData || {};
-
-          // Apply border and background gradient to element if opacity changed
           if (
             Math.abs(prevBorderOpacityRef.current - borderOpacity) >
             BORDER_OPACITY_THRESHOLD
@@ -752,19 +637,15 @@ export default function GlowAnimationWebGL({
             if (borderOpacity > 0 && borderColorRgb) {
               anchorEl.style.border = `${borderWidth}px solid rgba(${borderColorRgb.r}, ${borderColorRgb.g}, ${borderColorRgb.b}, ${borderOpacity})`;
               anchorEl.style.borderRadius = `${borderRadius}px`;
-              // Background color is now handled by SVG - don't set it here
             } else {
               anchorEl.style.border = "none";
             }
           }
         } else if (!spinPath && anchorEl && prevBorderOpacityRef.current > 0) {
-          // Remove border when spin animation is not active
           prevBorderOpacityRef.current = 0;
           anchorEl.style.border = "none";
         }
 
-        // Notify parent of glow intensity changes only when values actually change and animation is playing
-        // Throttle updates to reduce CPU usage - only update every 2 frames (30fps instead of 60fps)
         const callback = onGlowIntensityChangeRef.current;
         if (
           callback &&
@@ -787,8 +668,6 @@ export default function GlowAnimationWebGL({
               perimeterGlowIntensity,
               glowScale,
             };
-            // Throttle callback to every other frame (30fps) for glow updates
-            // This reduces CPU usage while still maintaining smooth visual updates
             if (!glowUpdateThrottleRef.current) {
               glowUpdateThrottleRef.current = true;
               callback({
@@ -796,7 +675,7 @@ export default function GlowAnimationWebGL({
                 perimeterGlowIntensity,
                 glowScale,
               });
-              // Reset throttle flag on next frame
+
               requestAnimationFrame(() => {
                 glowUpdateThrottleRef.current = false;
               });
@@ -804,22 +683,14 @@ export default function GlowAnimationWebGL({
           }
         }
 
-        // Track completion - we need to check if all paths that have started are complete
-        // A path "has started" if its delay has passed
-        // Start with true - will be set to false if any active path is still animating
-        // If no paths, nothing to complete (already true)
         let allComplete = true; // Start optimistic - assume all complete
         let hasAnyStartedPath = false;
-
-        // Reuse arrays instead of creating new ones every frame
         const pointsArrays = pointsArraysRef.current;
         const spinPoints = pointsArrays.spinPoints;
         const otherPoints = pointsArrays.otherPoints;
-        // Clear arrays for reuse (faster than creating new arrays)
+
         spinPoints.length = 0;
         otherPoints.length = 0;
-
-        // First pass: render spin animations (will appear behind)
         for (const precomputedPath of precomputedPaths) {
           if (!precomputedPath.isSpinPath) continue; // Skip non-spin in first pass
 
@@ -830,55 +701,35 @@ export default function GlowAnimationWebGL({
           const metrics = pathMetricsRef.current.get(precomputedPath.id);
 
           if (!metrics) {
-            // Metrics not calculated yet - path can't be complete
             allComplete = false;
             continue;
           }
-
-          // Cache durationSec check to avoid repeated Math.max calls
           const maxDurationSec = Math.max(precomputedPath.durationSec, EPSILON);
           const normalizedTime = Math.min(
             1.0,
             Math.max(0.0, elapsed / maxDurationSec)
           );
-
-          // Check if path has started (delay has passed)
           if (elapsed <= 0) {
-            // Path hasn't started yet - don't count it as incomplete
-            // If delay hasn't passed, this path doesn't affect completion status
             continue;
           }
-
-          // Path has started
           hasAnyStartedPath = true;
 
           if (normalizedTime <= 0) {
-            // Shouldn't happen if elapsed > 0, but handle it
             continue;
           }
 
           if (normalizedTime >= 1.0) {
-            // Animation complete for this path - don't set allComplete to false
-            // Continue checking other paths
             continue;
           }
-
-          // Path has started and is still animating (0 < normalizedTime < 1.0)
           allComplete = false;
-
-          // Use pre-computed values
           const { headRadius, tailRadius, glowColorRgb, glowRadius } =
             precomputedPath;
 
-          // Scale metrics by current glowScale to match BetSpot scaling
-          // The BetSpot is scaled via CSS transform, so we need to scale the spin path accordingly
           const scaledMetrics = {
             ...metrics,
             halfWidth: metrics.halfWidth * glowScale,
             halfHeight: metrics.halfHeight * glowScale,
           };
-
-          // Render spin animation with linear time (no easing, no fade)
           spinAnimation.renderSpinToPoints(
             spinPoints,
             precomputedPath.originalPath,
@@ -893,73 +744,50 @@ export default function GlowAnimationWebGL({
             glowRadius
           );
         }
-
-        // Second pass: render other animations (spark, line, circle) - will appear on top
         for (const precomputedPath of precomputedPaths) {
-          // Skip spin, objectGlow, svg, and multiplier in second pass
-          // (spin handled in first pass, objectGlow/svg handled via CSS, multiplier handled in page.js)
           if (
             precomputedPath.isSpinPath ||
             precomputedPath.isObjectGlowPath ||
             precomputedPath.isMultiplierPath ||
             precomputedPath.isSvgPath
           ) {
-            // Handle objectGlow completion check
             if (precomputedPath.isObjectGlowPath) {
               const elapsed = Math.max(
                 0,
                 currentTimeSec - precomputedPath.delaySec
               );
-
-              // ObjectGlow completion check
               if (elapsed > 0) {
-                // Path has started
                 hasAnyStartedPath = true;
                 if (elapsed < precomputedPath.durationSec) {
-                  // ObjectGlow is still animating
                   allComplete = false;
                 }
-                // If elapsed >= durationSec, objectGlow is complete
               }
-              // If elapsed <= 0, path hasn't started yet, doesn't affect completion
             }
-            // Handle multiplier completion check (multipliers are handled separately in page.js)
+
             if (precomputedPath.isMultiplierPath) {
               const elapsed = Math.max(
                 0,
                 currentTimeSec - precomputedPath.delaySec
               );
-
-              // Multiplier completion check
               if (elapsed > 0) {
-                // Path has started
                 hasAnyStartedPath = true;
                 if (elapsed < precomputedPath.durationSec) {
-                  // Multiplier is still animating
                   allComplete = false;
                 }
-                // If elapsed >= durationSec, multiplier is complete
               }
-              // If elapsed <= 0, path hasn't started yet, doesn't affect completion
             }
-            // Handle SVG completion check (SVG handled via CSS transform/opacity)
+
             if (precomputedPath.isSvgPath) {
               const elapsed = Math.max(
                 0,
                 currentTimeSec - precomputedPath.delaySec
               );
-
-              // SVG completion check
               if (elapsed > 0) {
-                // Path has started
                 hasAnyStartedPath = true;
                 if (elapsed < precomputedPath.durationSec) {
-                  // SVG is still animating
                   allComplete = false;
                 }
-                // If elapsed >= durationSec, SVG is complete
               }
-              // If elapsed <= 0, path hasn't started yet, doesn't affect completion
             }
             continue;
           }
@@ -969,10 +797,7 @@ export default function GlowAnimationWebGL({
             currentTimeSec - precomputedPath.delaySec
           );
           const metrics = pathMetricsRef.current.get(precomputedPath.id);
-
-          // Skip if metrics haven't been calculated yet
           if (!metrics) {
-            // Metrics not calculated yet - path can't be complete
             allComplete = false;
             continue;
           }
@@ -980,8 +805,6 @@ export default function GlowAnimationWebGL({
           const pathLength = metrics.pathLength || 1.0;
           const lineLength =
             precomputedPath.originalPath.length ?? cfg.length ?? 300.0;
-
-          // Cache path constants (shared across instances since config is same)
           const pathConstantsKey = `${
             precomputedPath.id
           }-${lineLength}-${pathLength}-${precomputedPath.animationTimeMs}-${
@@ -1023,26 +846,17 @@ export default function GlowAnimationWebGL({
             durationSec,
             fadeWindow,
           } = pathConstants;
-
-          // Cache durationSec check to avoid repeated Math.max calls
           const maxDurationSec = Math.max(durationSec, EPSILON);
           const normalizedTime = Math.min(
             1.0,
             Math.max(0.0, elapsed / maxDurationSec)
           );
-
-          // Check if path has started (delay has passed)
           if (elapsed <= 0) {
-            // Path hasn't started yet - don't count it as incomplete
-            // If delay hasn't passed, this path doesn't affect completion status
             continue;
           }
-
-          // Path has started
           hasAnyStartedPath = true;
 
           if (normalizedTime <= 0) {
-            // Shouldn't happen if elapsed > 0, but handle it
             continue;
           }
 
@@ -1056,16 +870,10 @@ export default function GlowAnimationWebGL({
           const isPathComplete =
             elapsed >= totalDuration ||
             scaledPhase >= completeThreshold - EPSILON;
-
-          // If path is complete, skip to next path (don't set allComplete to false)
           if (isPathComplete) {
             continue;
           }
-
-          // Path is still animating (not complete)
           allComplete = false;
-
-          // Use pre-computed values
           const {
             headRadius,
             tailRadius,
@@ -1120,8 +928,6 @@ export default function GlowAnimationWebGL({
           }
 
           if (alpha <= 0) continue;
-
-          // Colors are already pre-computed in precomputedPath
           if (precomputedPath.isLinePath) {
             const easedTime = applyEasingLine(normalizedTime);
             lineAnimation.renderLineToPoints(
@@ -1173,12 +979,10 @@ export default function GlowAnimationWebGL({
           }
         }
 
-        // Combine points: spin first (behind), then others (on top)
-        // Reuse combined array and populate it efficiently
         const combinedPoints = pointsArraysRef.current.combinedPoints;
         const totalPoints = spinPoints.length + otherPoints.length;
         combinedPoints.length = totalPoints;
-        // Copy arrays directly for better performance
+
         let idx = 0;
         for (let i = 0; i < spinPoints.length; i++) {
           combinedPoints[idx++] = spinPoints[i];
@@ -1187,42 +991,26 @@ export default function GlowAnimationWebGL({
           combinedPoints[idx++] = otherPoints[i];
         }
         const points = combinedPoints;
-
-        // Check if all animations are complete
-        // allComplete will be true only if:
-        // 1. There are no paths (nothing to animate), OR
-        // 2. At least one path has started AND all started paths have finished animating
-        // If no paths have started yet, don't consider it complete
         if (allComplete && (hasAnyStartedPath || activePaths.length === 0)) {
-          // Stop animation loop immediately
           if (animationIdRef.current) {
             cancelAnimationFrame(animationIdRef.current);
             animationIdRef.current = null;
           }
-          // Clear canvas
+
           gl.clearColor(0, 0, 0, 0);
           gl.clear(gl.COLOR_BUFFER_BIT);
-
-          // Reset all animation state
           accumulatedSecRef.current = 0;
           lastTsRef.current = null;
           hasAnimationStartedRef.current = false;
-
-          // Reset glow intensities
           prevGlowIntensitiesRef.current = {
             chipGlowIntensity: 0,
             perimeterGlowIntensity: 0,
             glowScale: 1.0,
           };
-
-          // Reset border and background
           if (anchorEl && prevBorderOpacityRef.current > 0) {
             prevBorderOpacityRef.current = 0;
             anchorEl.style.border = "none";
-            // Background color is now handled by SVG - don't set it here
           }
-
-          // Reset glow intensities via callback to ensure parent state is updated
           const glowCallback = onGlowIntensityChangeRef.current;
           if (glowCallback) {
             glowCallback({
@@ -1232,12 +1020,9 @@ export default function GlowAnimationWebGL({
             });
           }
 
-          // Call completion callback - this will update parent isPlaying state
-          // This must be called to update the play button state
           const completeCallback = onAnimationCompleteRef.current;
           if (completeCallback) {
             try {
-              // Call immediately - React will batch the state update
               completeCallback();
             } catch (error) {
               console.error(
@@ -1246,8 +1031,6 @@ export default function GlowAnimationWebGL({
               );
             }
           }
-
-          // Don't schedule another frame - animation is complete
           return;
         }
 
@@ -1259,13 +1042,8 @@ export default function GlowAnimationWebGL({
           return;
         }
 
-        pointCountRef.current = points.length;
-
-        // Reuse buffers to avoid allocations every frame
         const buffers = bufferRefs.current;
         const requiredSize = points.length;
-
-        // Resize buffers only if needed
         if (!buffers.positions || buffers.maxPoints < requiredSize) {
           buffers.maxPoints =
             Math.max(requiredSize, buffers.maxPoints || 0) * 2; // Allocate 2x to reduce reallocations
@@ -1283,8 +1061,6 @@ export default function GlowAnimationWebGL({
         const glowColors = buffers.glowColors;
         const alphas = buffers.alphas;
         const glowRadii = buffers.glowRadii;
-
-        // Optimize buffer population - use direct indexing for better performance
         const pointsLength = points.length;
         for (let i = 0; i < pointsLength; i++) {
           const p = points[i];
@@ -1304,8 +1080,6 @@ export default function GlowAnimationWebGL({
           alphas[i] = p.alpha;
           glowRadii[i] = p.glowRadius;
         }
-
-        // Only set uniforms if program is valid
         if (!programRef.current) {
           animationIdRef.current = requestAnimationFrame(animate);
           return;
@@ -1321,7 +1095,6 @@ export default function GlowAnimationWebGL({
           );
         }
         if (uniformsRef.current.devicePixelRatio) {
-          // Use cached device pixel ratio (only update on resize)
           gl.uniform1f(
             uniformsRef.current.devicePixelRatio,
             devicePixelRatioRef.current
@@ -1402,32 +1175,24 @@ export default function GlowAnimationWebGL({
 
         gl.drawArrays(gl.POINTS, 0, points.length);
 
-        // Removed overlay canvas CPU monitoring to reduce DOM nodes and event listeners
-        // const frameTime = cpuMonitorRef.current.endFrame();
-        // const cpuUsage = cpuMonitorRef.current.getCPUUsage();
-
         animationIdRef.current = requestAnimationFrame(animate);
       };
 
       if (isPlaying && !animationIdRef.current) {
-        // Recalculate metrics when animation starts to ensure we have latest dimensions
         recalculateOnStart();
 
         lastTsRef.current = null;
         accumulatedSecRef.current = 0;
         hasAnimationStartedRef.current = false; // Reset flag
-        // Reset glow when animation starts - update ref but don't call callback yet
-        // The callback will be called in the first animate frame if values change
         prevGlowIntensitiesRef.current = {
           chipGlowIntensity: -1, // Set to -1 to force first update
           perimeterGlowIntensity: -1,
           glowScale: -1,
         };
-        // Reset border opacity and background
+
         prevBorderOpacityRef.current = 0;
         if (anchorEl) {
           anchorEl.style.border = "none";
-          // Background color is now handled by SVG - don't set it here
         }
         animationIdRef.current = requestAnimationFrame(animate);
       } else if (!isPlaying && animationIdRef.current) {
@@ -1437,13 +1202,13 @@ export default function GlowAnimationWebGL({
         hasAnimationStartedRef.current = false;
         gl.clearColor(0, 0, 0, 0);
         gl.clear(gl.COLOR_BUFFER_BIT);
-        // Reset glow when animation stops - only call callback if animation had started
+
         prevGlowIntensitiesRef.current = {
           chipGlowIntensity: 0,
           perimeterGlowIntensity: 0,
           glowScale: 1.0,
         };
-        // Reset border and background when animation stops
+
         if (anchorEl && prevBorderOpacityRef.current > 0) {
           prevBorderOpacityRef.current = 0;
           anchorEl.style.border = "none";
@@ -1452,7 +1217,7 @@ export default function GlowAnimationWebGL({
             prevBackgroundGradientRef.current = null;
           }
         }
-        // Reset accumulated time
+
         accumulatedSecRef.current = 0;
         lastTsRef.current = null;
         const callback = onGlowIntensityChangeRef.current;
@@ -1466,19 +1231,13 @@ export default function GlowAnimationWebGL({
       }
 
       return () => {
-        // Cleanup animation frame
         if (animationIdRef.current) {
           cancelAnimationFrame(animationIdRef.current);
           animationIdRef.current = null;
         }
-
-        // Remove resize listener properly
         window.removeEventListener("resize", handleResize);
-
-        // Cleanup WebGL resources
         const gl = glRef.current;
         if (gl) {
-          // Delete buffers (using captured values)
           if (buffersForCleanup.position) {
             gl.deleteBuffer(buffersForCleanup.position);
           }
@@ -1497,27 +1256,19 @@ export default function GlowAnimationWebGL({
           if (buffersForCleanup.glowRadius) {
             gl.deleteBuffer(buffersForCleanup.glowRadius);
           }
-
-          // Delete shaders (using captured values)
           if (vertexShaderForCleanup) {
             gl.deleteShader(vertexShaderForCleanup);
           }
           if (fragmentShaderForCleanup) {
             gl.deleteShader(fragmentShaderForCleanup);
           }
-
-          // Delete program (using captured value)
           if (programForCleanup) {
             gl.deleteProgram(programForCleanup);
           }
         }
-
-        // Clear path metrics to free memory (using captured ref)
         if (pathMetricsForCleanup) {
           pathMetricsForCleanup.clear();
         }
-
-        // Clear buffer refs
         bufferRefs.current = {
           positions: null,
           radii: null,

@@ -17,7 +17,6 @@ export function applyGlowToElement(
 
   const glowScale = intensities?.glowScale || 1;
 
-  // Apply scale transformation to BetSpot (GPU accelerated)
   element.style.transform = `scale(${glowScale}) translateZ(0)`;
   element.style.transformOrigin = "center center";
 
@@ -38,23 +37,14 @@ export function applyGlowToElement(
 
     svgPreviousScaleRef.current[index] = glowScale;
 
-    // Calculate opacity based on scale
-    // - Before delay: glowScale === 1.0, opacity = 0
-    // - First half (1.0 -> 1.1): opacity goes from 0 to 1
-    // - After reaching max: opacity stays at 1 (even when scale returns to 1.0)
-    // - Only hidden when handleAnimationComplete is called
     let opacity = 0;
     const isMaxReached = svgMaxScaleReachedRef.current[index];
 
     if (isMaxReached) {
-      // Once we've reached max scale, opacity stays at 1
-      // This includes when scale returns to 1.0 after animation
       opacity = 1;
     } else if (glowScale === 1.0) {
-      // Before delay - no opacity
       opacity = 0;
     } else {
-      // First half: opacity goes from 0 to 1 as scale goes from 1.0 to 1.1
       opacity = Math.min(1, Math.max(0, (glowScale - 1) / 0.1));
     }
 
@@ -62,7 +52,6 @@ export function applyGlowToElement(
     svgElement.style.transform = `scale(${glowScale}) translateZ(0)`;
     svgElement.style.transformOrigin = "center center";
 
-    // Control visibility based on opacity
     if (opacity > 0) {
       svgElement.style.visibility = "visible";
     } else {

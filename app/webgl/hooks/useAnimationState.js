@@ -13,7 +13,6 @@ export function useAnimationState(initialConfig) {
     MAX_BETSPOT_COUNT
   );
 
-  // Select 5 random betspots to have active WebGL animations
   const activeBetspotIndices = useMemo(() => {
     const indices = Array.from({ length: betspotCount }, (_, i) => i);
     const seed = betspotCount * 7919;

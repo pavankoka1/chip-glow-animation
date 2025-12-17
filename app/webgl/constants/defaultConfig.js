@@ -16,6 +16,7 @@ export const DEFAULT_CONFIG = {
       delay: 0,
       ellipseTiltDeg: -45,
       ellipseRotationDeg: -2,
+      sparkColor: "#f1eb9d",
       enabled: true,
     },
     {
@@ -27,6 +28,7 @@ export const DEFAULT_CONFIG = {
       animationTimeMs: 710,
       ellipseTiltDeg: 45,
       ellipseRotationDeg: 2,
+      sparkColor: "#f1eb9d",
       enabled: true,
     },
     {
@@ -36,6 +38,7 @@ export const DEFAULT_CONFIG = {
       endVertex: "R",
       delay: 380,
       animationTimeMs: 1040,
+      sparkColor: "#f1eb9d",
       enabled: true,
     },
     {
@@ -55,7 +58,7 @@ export const DEFAULT_CONFIG = {
       enabled: true,
       borderRadius: 6.75,
       headColor: "#ffeecc",
-      tailColor: "#fcbb60",
+      tailColor: "#f8b778",
     },
     {
       id: 10,

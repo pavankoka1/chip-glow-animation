@@ -2,7 +2,7 @@
 
 import { PlayArrow, PlaylistPlay, Settings, Stop } from "@mui/icons-material";
 import { IconButton } from "@mui/material";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import BetMultiplier from "../components/BetMultiplier";
 import BetSpot from "../components/BetSpot";
 import BetSpotSelectorModal from "../components/BetSpotSelectorModal";
@@ -29,6 +29,8 @@ const MemoizedGlowAnimationWebGL = memo(
   }
 );
 
+const GRID_LAYOUT = { cols: 1, rows: 1 };
+
 export default function WebGLPage() {
   const animationState = useAnimationState(DEFAULT_CONFIG);
   const {
@@ -54,8 +56,6 @@ export default function WebGLPage() {
 
   const glowEffects = useGlowEffects(betspotCount, config, setAnchorEls);
   const {
-    betspotRefsStorage,
-    svgRefsStorage,
     svgMaxScaleReachedRef,
     svgPreviousScaleRef,
     svgGlowPeakReachedRef,
@@ -69,6 +69,7 @@ export default function WebGLPage() {
   const currentTimeSecRefs = useRef(
     Array.from({ length: betspotCount }, () => 0)
   );
+  const prevBetspotCountRef = useRef(betspotCount);
 
   const { handleAnimationComplete, handleTimeUpdate } = useAnimationHandlers(
     betspotCount,
@@ -83,14 +84,14 @@ export default function WebGLPage() {
     selectedBetspotsRef
   );
 
-  const gridLayout = useMemo(() => ({ cols: 1, rows: 1 }), []);
-
   useEffect(() => {
-    const prevCount = betspotCount;
+    const prevCount = prevBetspotCountRef.current;
     if (prevCount === betspotCount) return;
 
+    prevBetspotCountRef.current = betspotCount;
+
     setAnchorEls((prev) => {
-      const newEls = Array(betspotCount).fill(null);
+      const newEls = new Array(betspotCount).fill(null);
       for (let i = 0; i < Math.min(prev.length, betspotCount); i++) {
         newEls[i] = prev[i];
       }
@@ -102,25 +103,32 @@ export default function WebGLPage() {
 
     for (let i = 0; i < betspotCount; i++) {
       svgMaxScaleReachedRef.current[i] = false;
-      svgPreviousScaleRef.current[i] = 1.0;
+      svgPreviousScaleRef.current[i] = 1;
       svgGlowPeakReachedRef.current[i] = false;
       delete betspotOriginalSizeRef.current[i];
     }
-  }, [betspotCount, setAnchorEls]);
+  }, [
+    betspotCount,
+    setAnchorEls,
+    svgMaxScaleReachedRef,
+    svgPreviousScaleRef,
+    svgGlowPeakReachedRef,
+    betspotOriginalSizeRef,
+  ]);
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-black">
       <div
         className="grid"
         style={{
-          gridTemplateColumns: `repeat(${gridLayout.cols}, 1fr)`,
-          gridTemplateRows: `repeat(${gridLayout.rows}, 1fr)`,
+          gridTemplateColumns: `repeat(${GRID_LAYOUT.cols}, 1fr)`,
+          gridTemplateRows: `repeat(${GRID_LAYOUT.rows}, 1fr)`,
           gap: "20px",
         }}
       >
         {Array.from({ length: betspotCount }).map((_, index) => (
           <div
-            key={index}
+            key={`betspot-${index}`}
             className="relative flex items-center justify-center"
             style={{ overflow: "visible" }}
           >

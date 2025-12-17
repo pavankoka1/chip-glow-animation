@@ -60,12 +60,13 @@ export function SvgPaths({
           } Q${contentOffsetX + halfStroke} ${contentOffsetY + halfStroke} ${
             contentOffsetX + halfStroke + borderRadius
           } ${contentOffsetY + halfStroke} Z`}
-          stroke="#FFE825"
+          // stroke="#FFE825"
+          stroke="#f8a639"
           strokeWidth={borderStrokeWidth}
           fill="none"
         />
       </g>
-      <rect
+      {/* <rect
         x={contentOffsetX + rectInset}
         y={contentOffsetY + rectInset}
         width={width - rectInset * 2}
@@ -75,7 +76,7 @@ export function SvgPaths({
         stroke={`url(#${borderGradientId})`}
         strokeWidth={borderGlowStrokeWidth}
         fill="none"
-      />
+      /> */}
     </>
   );
 }
