@@ -10,11 +10,11 @@ import {
   applyEasingLine,
   applyEasingSpark,
 } from "../canvas2d/easing";
-import { calculateAutoA, getDynamicRotAngle } from "../canvas2d/geometry";
 import {
   getSharedActivePaths,
   getSharedConfigCache,
   getSharedPathConstants,
+  getSharedPathMetrics,
   getSharedPrecomputedPaths,
 } from "./configs/configCache";
 import {
@@ -74,6 +74,7 @@ export default function GlowAnimationWebGL({
   const pathMetricsRef = useRef(new Map());
   const precomputedPathsRef = useRef([]);
   const devicePixelRatioRef = useRef(getDevicePixelRatio());
+  const offsetRef = useRef({ x: 0, y: 0 }); // Offset from base center [0, 0] to actual center
   const bufferRefs = useRef({
     positions: null,
     radii: null,
@@ -287,146 +288,86 @@ export default function GlowAnimationWebGL({
         const rect = anchorRectRef.current;
         const [centerX, centerY] = anchorCenterRef.current;
 
-        for (const p of activePaths) {
-          const isCirclePath =
-            p.type === "circle" || p.circleRadius !== undefined;
-          const isLinePath = p.type === "line";
-          const isSpinPath = p.type === "spin";
+        offsetRef.current = { x: centerX, y: centerY };
 
-          if (isSpinPath) {
-            const prev = pathMetricsRef.current.get(p.id);
-            if (
-              !prev ||
-              prev.centerX !== centerX ||
-              prev.centerY !== centerY ||
-              prev.isSpin !== true ||
-              prev.rectWidth !== rect?.width ||
-              prev.rectHeight !== rect?.height
-            ) {
-              const metrics = spinAnimation.computeSpinMetrics(
-                p,
-                cfg,
-                rect,
-                centerX,
-                centerY
-              );
-              pathMetricsRef.current.set(p.id, metrics);
+        const baseRect = rect
+          ? {
+              width: rect.width,
+              height: rect.height,
+              left: -rect.width / 2,
+              top: -rect.height / 2,
             }
-          } else if (isLinePath) {
-            const startPoint = p.startPoint ?? 0;
-            const direction = p.direction ?? cfg.direction ?? "clockwise";
+          : null;
 
-            const prev = pathMetricsRef.current.get(p.id);
-            if (
-              !prev ||
-              prev.centerX !== centerX ||
-              prev.centerY !== centerY ||
-              prev.startPoint !== startPoint ||
-              prev.direction !== direction ||
-              prev.isLine !== true ||
-              prev.rectWidth !== rect?.width ||
-              prev.rectHeight !== rect?.height
-            ) {
-              const metrics = lineAnimation.computeLineMetrics(
-                p,
-                cfg,
-                rect,
-                centerX,
-                centerY
-              );
-              pathMetricsRef.current.set(p.id, {
-                ...metrics,
-                startPoint,
-                direction,
-              });
-            }
-          } else if (isCirclePath) {
-            const circleRadius = p.circleRadius ?? 30;
-            const autoA = calculateAutoA(rect);
-            const bVal = circleRadius;
-            const startVertex = p.startVertex || "BR";
-            const direction = p.direction ?? cfg.direction ?? "clockwise";
+        const sharedMetrics = getSharedPathMetrics(
+          activePaths,
+          cfg,
+          baseRect,
+          () => {
+            const baseMetrics = new Map();
+            const baseCenterX = 0;
+            const baseCenterY = 0;
 
-            const prev = pathMetricsRef.current.get(p.id);
-            if (
-              !prev ||
-              prev.centerX !== centerX ||
-              prev.centerY !== centerY ||
-              prev.a !== autoA ||
-              prev.b !== bVal ||
-              prev.rotAngle !== getDynamicRotAngle(startVertex) ||
-              prev.circleRadius !== circleRadius ||
-              prev.startVertex !== startVertex ||
-              prev.direction !== direction ||
-              prev.isCircle !== true
-            ) {
-              const metrics = circleAnimation.computeCircleMetrics(
-                p,
-                cfg,
-                rect,
-                centerX,
-                centerY
-              );
-              pathMetricsRef.current.set(p.id, metrics);
-            }
-          } else {
-            if (!p.startVertex || !p.endVertex) {
-              continue;
-            }
+            for (const p of activePaths) {
+              const isCirclePath =
+                p.type === "circle" || p.circleRadius !== undefined;
+              const isLinePath = p.type === "line";
+              const isSpinPath = p.type === "spin";
 
-            const prev = pathMetricsRef.current.get(p.id);
-            const ellipseCfg = p.ellipse || cfg.ellipse;
-            let autoA = ellipseCfg?.a;
-            let bVal = ellipseCfg?.b;
-            if (rect) {
-              autoA = calculateAutoA(rect, 10);
-            } else if (autoA === undefined) {
-              autoA = 150;
-            }
-            if (bVal === undefined || bVal === null) {
-              if (rect) {
-                const minDimension = Math.min(rect.width, rect.height);
-                const maxDimension = Math.max(rect.width, rect.height);
-                const aspectRatio = maxDimension / minDimension;
-                const baseB = minDimension * 0.2;
-
-                bVal = baseB / Math.sqrt(aspectRatio);
+              if (isSpinPath) {
+                const metrics = spinAnimation.computeSpinMetrics(
+                  p,
+                  cfg,
+                  baseRect,
+                  baseCenterX,
+                  baseCenterY
+                );
+                baseMetrics.set(p.id, metrics);
+              } else if (isLinePath) {
+                const startPoint = p.startPoint ?? 0;
+                const direction = p.direction ?? cfg.direction ?? "clockwise";
+                const metrics = lineAnimation.computeLineMetrics(
+                  p,
+                  cfg,
+                  baseRect,
+                  baseCenterX,
+                  baseCenterY
+                );
+                baseMetrics.set(p.id, {
+                  ...metrics,
+                  startPoint,
+                  direction,
+                });
+              } else if (isCirclePath) {
+                const metrics = circleAnimation.computeCircleMetrics(
+                  p,
+                  cfg,
+                  baseRect,
+                  baseCenterX,
+                  baseCenterY
+                );
+                baseMetrics.set(p.id, metrics);
               } else {
-                bVal = autoA * 0.2475; // Maintains ~4:1 ratio
-              }
-            } else {
-            }
-
-            const ellipseTiltDeg = p.ellipseTiltDeg ?? cfg.ellipseTiltDeg ?? 0;
-            const ellipseRotationDeg =
-              p.ellipseRotationDeg ?? cfg.ellipseRotationDeg ?? 0;
-
-            if (
-              !prev ||
-              prev.centerX !== centerX ||
-              prev.centerY !== centerY ||
-              prev.a !== autoA ||
-              prev.b !== bVal ||
-              prev.ellipseTiltDeg !== ellipseTiltDeg ||
-              prev.ellipseRotationDeg !== ellipseRotationDeg ||
-              prev.direction !== (p.direction ?? cfg.direction ?? "auto") ||
-              prev.isCircle === true ||
-              prev.rectWidth !== rect?.width ||
-              prev.rectHeight !== rect?.height
-            ) {
-              const metrics = sparkAnimation.computeSparkMetrics(
-                p,
-                cfg,
-                rect,
-                centerX,
-                centerY
-              );
-              if (metrics) {
-                pathMetricsRef.current.set(p.id, metrics);
+                if (!p.startVertex || !p.endVertex) {
+                  continue;
+                }
+                const metrics = sparkAnimation.computeSparkMetrics(
+                  p,
+                  cfg,
+                  baseRect,
+                  baseCenterX,
+                  baseCenterY
+                );
+                if (metrics) {
+                  baseMetrics.set(p.id, metrics);
+                }
               }
             }
+            return baseMetrics;
           }
-        }
+        );
+
+        pathMetricsRef.current = sharedMetrics;
       };
       precalculatePathMetrics();
 
@@ -507,23 +448,36 @@ export default function GlowAnimationWebGL({
 
           const transformedRect = anchorEl.getBoundingClientRect();
           const oldRect = anchorRectRef.current;
-          if (
+          const newCenterX = transformedRect.left + baseWidth / 2;
+          const newCenterY = transformedRect.top + baseHeight / 2;
+          const oldCenter = anchorCenterRef.current;
+
+          // Check if rect size changed or center position changed significantly
+          const rectSizeChanged =
             !oldRect ||
             Math.abs(oldRect.width - baseWidth) > 0.1 ||
-            Math.abs(oldRect.height - baseHeight) > 0.1
-          ) {
+            Math.abs(oldRect.height - baseHeight) > 0.1;
+          const centerChanged =
+            !oldCenter ||
+            Math.abs(oldCenter[0] - newCenterX) > 0.1 ||
+            Math.abs(oldCenter[1] - newCenterY) > 0.1;
+
+          if (rectSizeChanged || centerChanged) {
             anchorRectRef.current = {
               ...transformedRect,
               width: baseWidth,
               height: baseHeight,
             };
-            anchorCenterRef.current = [
-              transformedRect.left + baseWidth / 2,
-              transformedRect.top + baseHeight / 2,
-            ];
-            pathMetricsRef.current.clear();
+            anchorCenterRef.current = [newCenterX, newCenterY];
 
-            precalculatePathMetrics();
+            // Update offset
+            offsetRef.current = { x: newCenterX, y: newCenterY };
+
+            // Only recalculate metrics if rect size changed (metrics depend on size, not position)
+            if (rectSizeChanged) {
+              pathMetricsRef.current.clear();
+              precalculatePathMetrics();
+            }
           }
         }
 
@@ -654,19 +608,32 @@ export default function GlowAnimationWebGL({
           hasAnimationStartedRef.current
         ) {
           const prev = prevGlowIntensitiesRef.current;
+
+          // Calculate SVG elapsed time if there's an SVG path
+          let svgElapsed = null;
+          let svgDurationSec = null;
+          if (svgPath && svgPath.svgData) {
+            svgElapsed = Math.max(0, currentTimeSec - svgPath.delaySec);
+            svgDurationSec = svgPath.durationSec;
+          }
+
           const hasChanged =
             Math.abs(prev.chipGlowIntensity - chipGlowIntensity) >
               GLOW_INTENSITY_THRESHOLD ||
             Math.abs(prev.perimeterGlowIntensity - perimeterGlowIntensity) >
               GLOW_INTENSITY_THRESHOLD ||
             Math.abs((prev.glowScale || 1.0) - glowScale) >
-              GLOW_INTENSITY_THRESHOLD;
+              GLOW_INTENSITY_THRESHOLD ||
+            (svgElapsed !== null &&
+              Math.abs((prev.svgElapsed || 0) - svgElapsed) > 0.01);
 
           if (hasChanged) {
             prevGlowIntensitiesRef.current = {
               chipGlowIntensity,
               perimeterGlowIntensity,
               glowScale,
+              svgElapsed,
+              svgDurationSec,
             };
             if (!glowUpdateThrottleRef.current) {
               glowUpdateThrottleRef.current = true;
@@ -674,6 +641,8 @@ export default function GlowAnimationWebGL({
                 chipGlowIntensity,
                 perimeterGlowIntensity,
                 glowScale,
+                svgElapsed,
+                svgDurationSec,
               });
 
               requestAnimationFrame(() => {
@@ -725,8 +694,11 @@ export default function GlowAnimationWebGL({
           const { headRadius, tailRadius, glowColorRgb, glowRadius } =
             precomputedPath;
 
+          const offset = offsetRef.current;
           const scaledMetrics = {
             ...metrics,
+            centerX: offset.x,
+            centerY: offset.y,
             halfWidth: metrics.halfWidth * glowScale,
             halfHeight: metrics.halfHeight * glowScale,
           };
@@ -736,10 +708,10 @@ export default function GlowAnimationWebGL({
             cfg,
             scaledMetrics,
             normalizedTime,
-            1.0, // Full alpha for spin
+            1.0,
             headRadius,
             tailRadius,
-            [1, 1, 1], // Not used
+            [1, 1, 1],
             glowColorRgb,
             glowRadius
           );
@@ -960,11 +932,18 @@ export default function GlowAnimationWebGL({
               glowRadius
             );
           } else {
+            const sparkStartIdx = otherPoints.length;
+            const offset = offsetRef.current;
+            const sparkMetrics = {
+              ...metrics,
+              centerX: offset.x,
+              centerY: offset.y,
+            };
             sparkAnimation.renderSparkToPoints(
               otherPoints,
               precomputedPath.originalPath,
               cfg,
-              metrics,
+              sparkMetrics,
               segTail,
               segHead,
               totalSpan,
@@ -976,6 +955,9 @@ export default function GlowAnimationWebGL({
               glowColorRgb,
               glowRadius
             );
+            for (let i = sparkStartIdx; i < otherPoints.length; i++) {
+              otherPoints[i]._skipOffset = true;
+            }
           }
         }
 
@@ -985,7 +967,7 @@ export default function GlowAnimationWebGL({
 
         let idx = 0;
         for (let i = 0; i < spinPoints.length; i++) {
-          combinedPoints[idx++] = spinPoints[i];
+          combinedPoints[idx++] = { ...spinPoints[i], _skipOffset: true };
         }
         for (let i = 0; i < otherPoints.length; i++) {
           combinedPoints[idx++] = otherPoints[i];
@@ -1062,12 +1044,14 @@ export default function GlowAnimationWebGL({
         const alphas = buffers.alphas;
         const glowRadii = buffers.glowRadii;
         const pointsLength = points.length;
+        const offset = offsetRef.current;
         for (let i = 0; i < pointsLength; i++) {
           const p = points[i];
           const i2 = i * 2;
           const i3 = i * 3;
-          positions[i2] = p.x;
-          positions[i2 + 1] = p.y;
+          const shouldApplyOffset = !p._skipOffset;
+          positions[i2] = p.x + (shouldApplyOffset ? offset.x : 0);
+          positions[i2 + 1] = p.y + (shouldApplyOffset ? offset.y : 0);
           radii[i] = p.radius;
           const sc = p.sparkColor;
           sparkColors[i3] = sc[0];

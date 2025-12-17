@@ -7,8 +7,8 @@ let sharedConfigCache = null;
 let sharedActivePathsCache = null;
 let sharedPathConstantsCache = new Map();
 let sharedColorCache = new Map();
-// Shared precomputed paths cache - all betspots use the same config, so share precomputed paths
 let sharedPrecomputedPathsCache = null;
+let sharedPathMetricsCache = new Map();
 
 /**
  * Gets or creates a cached config object
@@ -28,6 +28,7 @@ export function getSharedConfigCache(config, defaultConfig) {
     sharedPathConstantsCache.clear();
     sharedColorCache.clear();
     sharedPrecomputedPathsCache = null;
+    sharedPathMetricsCache.clear();
   }
   return sharedConfigCache.cfg;
 }
@@ -88,6 +89,22 @@ export function getSharedPrecomputedPaths(activePaths, cfg, precomputeFn) {
   return sharedPrecomputedPathsCache;
 }
 
+export function getSharedPathMetrics(activePaths, cfg, baseRect, computeFn) {
+  const configKey = sharedConfigCache?.key;
+  const rectKey = baseRect
+    ? `${baseRect.width.toFixed(2)}x${baseRect.height.toFixed(2)}`
+    : "default";
+  const cacheKey = `${configKey}-${rectKey}`;
+
+  if (!sharedPathMetricsCache.has(cacheKey)) {
+    const metrics = computeFn();
+    sharedPathMetricsCache.set(cacheKey, metrics);
+  }
+
+  const cachedMetrics = sharedPathMetricsCache.get(cacheKey);
+  return new Map(cachedMetrics);
+}
+
 /**
  * Clears all shared caches
  */
@@ -97,4 +114,5 @@ export function clearSharedCaches() {
   sharedPathConstantsCache.clear();
   sharedColorCache.clear();
   sharedPrecomputedPathsCache = null;
+  sharedPathMetricsCache.clear();
 }

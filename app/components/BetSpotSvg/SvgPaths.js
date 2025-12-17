@@ -13,7 +13,7 @@ export function SvgPaths({
 }) {
   return (
     <>
-      <g>
+      <g data-svg-part="background">
         <path
           d={`M${contentOffsetX + borderRadius} ${contentOffsetY} L${
             contentOffsetX + width - borderRadius
@@ -34,6 +34,8 @@ export function SvgPaths({
           } ${contentOffsetY} Z`}
           fill={`url(#${fullBgGradientId})`}
         />
+      </g>
+      <g data-svg-part="border">
         <path
           d={`M${contentOffsetX + halfStroke + borderRadius} ${
             contentOffsetY + halfStroke

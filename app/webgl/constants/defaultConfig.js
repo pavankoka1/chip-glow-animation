@@ -1,5 +1,5 @@
 export const DEFAULT_CONFIG = {
-  betspotCount: 1,
+  betspotCount: 5,
   glowRadius: 5,
   ellipse: { b: 20, a: 76 },
   headRadius: 5,
