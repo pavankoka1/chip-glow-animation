@@ -35,9 +35,28 @@ export function precomputePathData(path, cfg) {
   const dotCount = path.dotCount ?? cfg.dotCount ?? null;
   const length = path.length ?? cfg.length ?? null;
 
+  // Pre-compute 3-layer fireball structure parameters
+  const whiteCenterRatio = path.whiteCenterRatio ?? cfg.whiteCenterRatio ?? 0.6;
+  const glowOpacityStart = path.glowOpacityStart ?? cfg.glowOpacityStart ?? 0.5;
+  const glowSideSuppression =
+    path.glowSideSuppression ?? cfg.glowSideSuppression ?? 1.5;
+  const glowRadiusMultiplier =
+    path.glowRadiusMultiplier ?? cfg.glowRadiusMultiplier ?? 1.0;
+
+  // Pre-compute head tapering (tip) parameters
+  const headTaperRatio = path.headTaperRatio ?? cfg.headTaperRatio ?? 0.0;
+  const tipRadius = path.tipRadius ?? cfg.tipRadius ?? tailRadius;
+
   // Pre-compute color RGB values (normalized)
-  const sparkColorRgbRaw = hexToRgb(sparkColor);
-  const glowColorRgbRaw = hexToRgb(glowColor);
+  // For fireball effect, sparkColor is the white center, glowColor is the surrounding yellow
+  const centerColorHex =
+    path.whiteCenterRatio !== undefined
+      ? "#ffffff"
+      : path.sparkColor ?? cfg.sparkColor ?? "#ffff00";
+  const surroundColorHex = path.glowColor ?? cfg.glowColor ?? "#fff391";
+
+  const sparkColorRgbRaw = hexToRgb(centerColorHex);
+  const glowColorRgbRaw = hexToRgb(surroundColorHex);
   const sparkColorRgb = [
     sparkColorRgbRaw[0] / 255.0,
     sparkColorRgbRaw[1] / 255.0,
@@ -139,6 +158,16 @@ export function precomputePathData(path, cfg) {
     length,
     sparkColorRgb,
     glowColorRgb,
+
+    // 3-layer fireball properties
+    whiteCenterRatio,
+    glowOpacityStart,
+    glowSideSuppression,
+    glowRadiusMultiplier,
+
+    // Tapering properties
+    headTaperRatio,
+    tipRadius,
 
     // Fade properties (pre-computed)
     fadeIn,

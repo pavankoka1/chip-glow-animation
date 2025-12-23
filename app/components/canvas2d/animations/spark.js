@@ -419,6 +419,12 @@ export function renderSparkToPoints(
   const effectiveSpan = totalSpan * lengthMultiplier;
   const effectiveSegHead = segTail + (segHead - segTail) * lengthMultiplier;
 
+  // Head tapering (tip) logic
+  const headTaperRatio =
+    pathConfig.headTaperRatio ?? globalConfig.headTaperRatio ?? 0.0;
+  const tipRadius =
+    pathConfig.tipRadius ?? globalConfig.tipRadius ?? tailRadius;
+
   for (let i = 0; i <= sampleCount; i++) {
     const t = segTail + (effectiveSegHead - segTail) * (i / sampleCount);
     const tClamped = Math.max(0, Math.min(effectiveSpan, t));
@@ -450,7 +456,23 @@ export function renderSparkToPoints(
     }
 
     const along01 = i / sampleCount;
-    const radius = tailRadius + (headRadius - tailRadius) * along01;
+
+    // Head tapering logic
+    let radius;
+    if (headTaperRatio > 0 && along01 > 1.0 - headTaperRatio) {
+      // Tip: parabolic tapering for a smoother, rounded "bullet" profile
+      const tipT = (along01 - (1.0 - headTaperRatio)) / headTaperRatio;
+      const smoothness = Math.cos((tipT * Math.PI) / 2.0);
+      radius = tipRadius + (headRadius - tipRadius) * smoothness;
+    } else if (headTaperRatio > 0) {
+      // Body: growing from tailRadius to headRadius peaking at taper start
+      const bodyT = along01 / (1.0 - headTaperRatio);
+      radius = tailRadius + (headRadius - tailRadius) * bodyT;
+    } else {
+      // Standard linear interpolation if no tapering
+      radius = tailRadius + (headRadius - tailRadius) * along01;
+    }
+
     pointsArray.push({
       x,
       y,
@@ -458,7 +480,11 @@ export function renderSparkToPoints(
       sparkColor: sparkColorRgb,
       glowColor: glowColorRgb,
       alpha,
-      glowRadius,
+      glowRadius:
+        radius *
+        (pathConfig.glowRadiusMultiplier ??
+          globalConfig.glowRadiusMultiplier ??
+          1.0),
     });
   }
 }

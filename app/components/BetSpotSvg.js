@@ -19,14 +19,20 @@ const BetSpotSvg = function BetSpotSvg({ betspotRef, svgRef }) {
     }
 
     const updateDimensions = () => {
-      if (element && typeof element.getBoundingClientRect === "function") {
+      if (element) {
         try {
-          const rect = element.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0) {
-            setDimensions({ width: rect.width, height: rect.height });
+          // Use offsetWidth/Height to get unscaled dimensions (layout size)
+          // instead of getBoundingClientRect which returns scaled visual size.
+          // This allows the parent container's scale to work correctly without
+          // double-scaling the internal SVG paths.
+          const width = element.offsetWidth || 0;
+          const height = element.offsetHeight || 0;
+
+          if (width > 0 && height > 0) {
+            setDimensions({ width, height });
           }
         } catch (error) {
-          // Silently handle errors during SSR or when element is not ready
+          // Silently handle errors
         }
       }
     };

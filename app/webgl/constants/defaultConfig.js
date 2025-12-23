@@ -1,11 +1,19 @@
 export const DEFAULT_CONFIG = {
-  betspotCount: 9,
+  betspotCount: 1,
   glowRadius: 5,
-  ellipse: { b: 12 },
+  ellipse: { b: 8.5, a: 37 },
   headRadius: 5,
   tailRadius: 1,
   sparkColor: "#f1eb9d",
   glowColor: "#fdcb3d",
+  // Default layer configuration for 3-layer spark structure
+  whiteCenterRatio: 0.8,
+  glowRadiusMultiplier: 0.5,
+  glowOpacityStart: 1.2,
+  glowSideSuppression: 1.5,
+  // Default head tapering (tip)
+  headTaperRatio: 0.08,
+  tipRadius: 0.2,
   paths: [
     {
       id: 1,
@@ -16,12 +24,20 @@ export const DEFAULT_CONFIG = {
       delay: 0,
       ellipseTiltDeg: -45,
       ellipseRotationDeg: -2,
-      sparkColor: "#f1eb9d",
+      sparkColor: "#fefe51",
       headRadius: 2,
       tailRadius: 0.4,
       length: 5.0,
-      dotCount: 25,
+      dotCount: 10, // Higher count for high-fidelity smoothness on the rounded tip
       enabled: true,
+      // Layer configuration for 3-layer spark structure
+      whiteCenterRatio: 0.5, // White center takes 60% of core radius (0.0 to 1.0)
+      glowRadiusMultiplier: 0.5, // Glow radius = point radius * multiplier
+      glowOpacityStart: 1.2, // Glow starts at 50% opacity near object (0.0 to 1.0)
+      glowSideSuppression: 0.75, // Higher values = thinner glow on sides (0.5 to 5.0)
+      // Head tapering (tip)
+      headTaperRatio: 0.08, // Last 20% of path is used to taper into a tip
+      tipRadius: 0.5, // Radius at the very tip of the head
     },
     {
       id: 2,
@@ -36,7 +52,7 @@ export const DEFAULT_CONFIG = {
       headRadius: 2,
       tailRadius: 0.4,
       length: 5.0,
-      dotCount: 25,
+      dotCount: 100,
       enabled: true,
     },
     {
@@ -50,7 +66,7 @@ export const DEFAULT_CONFIG = {
       headRadius: 2,
       tailRadius: 0.4,
       length: 5.0,
-      dotCount: 25,
+      dotCount: 100,
       enabled: true,
     },
     {

@@ -80,7 +80,9 @@ export function useAnimationHandlers(
 
   useEffect(() => {
     isPlaying.forEach((playing, index) => {
-      const shouldAnimate = playing && selectedBetspots[index];
+      const shouldAnimate =
+        (playing || currentTimeSecRefs.current[index] > 0) &&
+        selectedBetspots[index];
       if (!shouldAnimate) {
         const multiplierElements = multiplierRefs.current[index];
         if (multiplierElements) {
@@ -109,7 +111,14 @@ export function useAnimationHandlers(
         }
       }
     });
-  }, [isPlaying, selectedBetspots, multiplierRefs]);
+  }, [
+    isPlaying,
+    selectedBetspots,
+    multiplierRefs,
+    svgRefsStorage,
+    betspotRefsStorage,
+    currentTimeSecRefs,
+  ]);
 
   return {
     handleAnimationComplete,

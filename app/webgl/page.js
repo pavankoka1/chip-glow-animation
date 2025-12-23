@@ -2,7 +2,7 @@
 
 import { PlayArrow, PlaylistPlay, Settings, Stop } from "@mui/icons-material";
 import { IconButton } from "@mui/material";
-import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BetMultiplier from "../components/BetMultiplier";
 import BetSpot from "../components/BetSpot";
 import BetSpotSelectorModal from "../components/BetSpotSelectorModal";
@@ -27,14 +27,70 @@ const MemoizedGlowAnimationWebGL = memo(
       prevProps.config === nextProps.config &&
       prevProps.onAnimationComplete === nextProps.onAnimationComplete &&
       prevProps.onGlowIntensityChange === nextProps.onGlowIntensityChange &&
-      prevProps.onTimeUpdate === nextProps.onTimeUpdate
+      prevProps.onTimeUpdate === nextProps.onTimeUpdate &&
+      prevProps.scrubTime === nextProps.scrubTime
     );
   }
 );
 
-const GRID_LAYOUT = { cols: 3, rows: 1 };
+const GRID_LAYOUT = { cols: 1, rows: 1 };
+
+// Separate Slider component to ensure high-performance dragging
+const ScrubSlider = memo(
+  ({ value, max, onChange, onModeToggle, isScrubbing }) => {
+    const [localValue, setLocalValue] = useState(value || 0);
+    const isDragging = useRef(false);
+
+    useEffect(() => {
+      if (!isDragging.current) {
+        setLocalValue(value || 0);
+      }
+    }, [value]);
+
+    const handleChange = (e) => {
+      const val = parseFloat(e.target.value);
+      setLocalValue(val);
+      onChange(val);
+    };
+
+    return (
+      <div className="bg-black/80 rounded-lg p-4 border border-white/20 w-[80vw] max-w-4xl shadow-2xl">
+        <div className="flex justify-between items-center mb-3">
+          <label className="text-white text-sm font-medium">
+            Timeframe:{" "}
+            <span className="text-yellow-500 font-mono">
+              {localValue.toFixed(3)}s
+            </span>
+          </label>
+          <button
+            onClick={onModeToggle}
+            className={`px-3 py-1 rounded text-xs font-bold transition-colors ${
+              isScrubbing
+                ? "bg-yellow-500 text-black hover:bg-yellow-400"
+                : "bg-gray-700 text-white hover:bg-gray-600"
+            }`}
+          >
+            {isScrubbing ? "SCRUBBING" : "LIVE"}
+          </button>
+        </div>
+        <input
+          type="range"
+          min="0"
+          max={max}
+          step="0.001"
+          value={localValue}
+          onMouseDown={() => (isDragging.current = true)}
+          onMouseUp={() => (isDragging.current = false)}
+          onInput={handleChange}
+          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+        />
+      </div>
+    );
+  }
+);
 
 export default function WebGLPage() {
+  const [scrubTime, setScrubTime] = useState(null);
   const animationState = useAnimationState(DEFAULT_CONFIG);
   const {
     config,
@@ -58,15 +114,8 @@ export default function WebGLPage() {
   } = animationState;
 
   const glowEffects = useGlowEffects(betspotCount, config, setAnchorEls);
-  const {
-    svgMaxScaleReachedRef,
-    svgPreviousScaleRef,
-    svgGlowPeakReachedRef,
-    betspotOriginalSizeRef,
-    getAnchorRefCallback,
-    getSvgRefCallback,
-    getGlowIntensityHandler,
-  } = glowEffects;
+  const { getAnchorRefCallback, getSvgRefCallback, getGlowIntensityHandler } =
+    glowEffects;
 
   const multiplierRefs = useRef(Array.from({ length: betspotCount }, () => []));
   const currentTimeSecRefs = useRef(
@@ -103,40 +152,16 @@ export default function WebGLPage() {
   useEffect(() => {
     const prevCount = prevBetspotCountRef.current;
     if (prevCount === betspotCount) return;
-
     prevBetspotCountRef.current = betspotCount;
-
     setAnchorEls((prev) => {
       const newEls = new Array(betspotCount).fill(null);
       const minLen = Math.min(prev.length, betspotCount);
-      for (let i = 0; i < minLen; i++) {
-        newEls[i] = prev[i];
-      }
+      for (let i = 0; i < minLen; i++) newEls[i] = prev[i];
       return newEls;
     });
-
     multiplierRefs.current = Array.from({ length: betspotCount }, () => []);
     currentTimeSecRefs.current = Array.from({ length: betspotCount }, () => 0);
-
-    const maxScaleRef = svgMaxScaleReachedRef.current;
-    const prevScaleRef = svgPreviousScaleRef.current;
-    const glowPeakRef = svgGlowPeakReachedRef.current;
-    const originalSizeRef = betspotOriginalSizeRef.current;
-
-    for (let i = 0; i < betspotCount; i++) {
-      maxScaleRef[i] = false;
-      prevScaleRef[i] = 1;
-      glowPeakRef[i] = false;
-      delete originalSizeRef[i];
-    }
-  }, [
-    betspotCount,
-    setAnchorEls,
-    svgMaxScaleReachedRef,
-    svgPreviousScaleRef,
-    svgGlowPeakReachedRef,
-    betspotOriginalSizeRef,
-  ]);
+  }, [betspotCount, setAnchorEls]);
 
   const gridStyle = useMemo(
     () => ({
@@ -147,75 +172,40 @@ export default function WebGLPage() {
     []
   );
 
-  const multiplierRefCallbacksRef = useRef(new Map());
-
   const getMultiplierRefCallback = useCallback((index, pathIndex) => {
     const key = `${index}-${pathIndex}`;
-    if (!multiplierRefCallbacksRef.current.has(key)) {
-      multiplierRefCallbacksRef.current.set(key, (el) => {
-        if (!multiplierRefs.current[index]) {
-          multiplierRefs.current[index] = [];
-        }
-        multiplierRefs.current[index][pathIndex] = el;
-      });
-    }
-    return multiplierRefCallbacksRef.current.get(key);
+    return (el) => {
+      if (!multiplierRefs.current[index]) multiplierRefs.current[index] = [];
+      multiplierRefs.current[index][pathIndex] = el;
+    };
   }, []);
 
-  const animationCompleteHandlersRef = useRef(new Map());
-
   const getAnimationCompleteHandler = useCallback(
-    (index) => {
-      if (!animationCompleteHandlersRef.current.has(index)) {
-        animationCompleteHandlersRef.current.set(index, () =>
-          handleAnimationComplete(index)
-        );
-      }
-      return animationCompleteHandlersRef.current.get(index);
-    },
+    (index) => () => handleAnimationComplete(index),
     [handleAnimationComplete]
   );
-
-  const timeUpdateHandlersRef = useRef(new Map());
-
   const getTimeUpdateHandler = useCallback(
-    (index) => {
-      if (!timeUpdateHandlersRef.current.has(index)) {
-        timeUpdateHandlersRef.current.set(index, (currentTimeSec) =>
-          handleTimeUpdate(index, currentTimeSec)
-        );
-      }
-      return timeUpdateHandlersRef.current.get(index);
-    },
+    (index) => (t) => handleTimeUpdate(index, t),
     [handleTimeUpdate]
   );
 
-  const betspotIndices = useMemo(
-    () => Array.from({ length: betspotCount }, (_, i) => i),
-    [betspotCount]
-  );
-
-  const handleOpenSelector = useCallback(
-    () => setSelectorOpen(true),
-    [setSelectorOpen]
-  );
-  const handleOpenConfig = useCallback(
-    () => setConfigOpen(true),
-    [setConfigOpen]
-  );
-  const handleCloseConfig = useCallback(
-    () => setConfigOpen(false),
-    [setConfigOpen]
-  );
-  const handleCloseSelector = useCallback(
-    () => setSelectorOpen(false),
-    [setSelectorOpen]
-  );
+  const maxDuration = useMemo(() => {
+    if (!config.paths) return 0;
+    return Math.max(
+      ...config.paths.map(
+        (p) =>
+          (p.delay || 0) / 1000 +
+          (p.animationTimeMs || config.animationTimeMs || 800) / 1000 +
+          0.5
+      ),
+      0
+    );
+  }, [config]);
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-black">
+    <div className="flex min-h-screen w-full items-center justify-center bg-black overflow-hidden relative">
       <div className="grid" style={gridStyle}>
-        {betspotIndices.map((index) => {
+        {Array.from({ length: betspotCount }).map((_, index) => {
           const anchorEl = anchorEls[index];
           const isActive = anchorEl && activeBetspotIndices.includes(index);
           const shouldPlay = isPlaying[index] && selectedBetspots[index];
@@ -227,12 +217,6 @@ export default function WebGLPage() {
               style={{ overflow: "visible" }}
             >
               <MemoizedBetSpot ref={getAnchorRefCallback(index)} />
-              {hasSvgPath && (
-                <BetSpotSvg
-                  betspotRef={{ current: anchorEl }}
-                  svgRef={getSvgRefCallback(index)}
-                />
-              )}
               <Chip />
               {multiplierPaths.map((multiplierPath, pathIndex) => (
                 <MemoizedBetMultiplier
@@ -241,6 +225,12 @@ export default function WebGLPage() {
                   ref={getMultiplierRefCallback(index, pathIndex)}
                 />
               ))}
+              {hasSvgPath && (
+                <BetSpotSvg
+                  betspotRef={{ current: anchorEl }}
+                  svgRef={getSvgRefCallback(index)}
+                />
+              )}
               {isActive && (
                 <MemoizedGlowAnimationWebGL
                   key={`glow-${index}-${shouldPlay}`}
@@ -250,6 +240,7 @@ export default function WebGLPage() {
                   onAnimationComplete={getAnimationCompleteHandler(index)}
                   onGlowIntensityChange={getGlowIntensityHandler(index)}
                   onTimeUpdate={getTimeUpdateHandler(index)}
+                  scrubTime={scrubTime}
                 />
               )}
             </div>
@@ -257,8 +248,9 @@ export default function WebGLPage() {
         })}
       </div>
 
+      {/* Floating Controls */}
       <IconButton
-        onClick={handleOpenSelector}
+        onClick={() => setSelectorOpen(true)}
         sx={{
           position: "fixed",
           top: 16,
@@ -304,7 +296,7 @@ export default function WebGLPage() {
       </IconButton>
 
       <IconButton
-        onClick={handleOpenConfig}
+        onClick={() => setConfigOpen(true)}
         sx={{
           position: "fixed",
           top: 16,
@@ -312,9 +304,7 @@ export default function WebGLPage() {
           zIndex: 1000,
           bgcolor: "rgba(255, 255, 255, 0.1)",
           color: "white",
-          "&:hover": {
-            bgcolor: "rgba(255, 255, 255, 0.2)",
-          },
+          "&:hover": { bgcolor: "rgba(255, 255, 255, 0.2)" },
         }}
       >
         <Settings />
@@ -322,18 +312,29 @@ export default function WebGLPage() {
 
       <ConfigModal
         open={configOpen}
-        onClose={handleCloseConfig}
+        onClose={() => setConfigOpen(false)}
         config={config}
         onConfigChange={setConfig}
       />
-
       <BetSpotSelectorModal
         open={selectorOpen}
-        onClose={handleCloseSelector}
+        onClose={() => setSelectorOpen(false)}
         betspotCount={betspotCount}
         selectedBetspots={selectedBetspots}
         onSelectionChange={handleSelectionChange}
       />
+
+      {/* Bottom Bar with Sliders */}
+      <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 z-10 flex flex-col gap-4 items-center">
+        {/* High-Performance Time Scrubber */}
+        <ScrubSlider
+          value={scrubTime}
+          max={maxDuration}
+          onChange={setScrubTime}
+          isScrubbing={scrubTime !== null}
+          onModeToggle={() => setScrubTime(scrubTime === null ? 0 : null)}
+        />
+      </div>
     </div>
   );
 }
