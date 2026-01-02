@@ -13,7 +13,7 @@ uniform float u_rotateX;
 uniform float u_rotateY;
 uniform float u_rotateZ;
 uniform float u_bendAngle;
-uniform vec2 u_positionOffset;
+uniform vec2 u_positionOffset; // Screen position offset
 
 varying vec3 v_position;
 varying float v_coneType;
@@ -68,13 +68,18 @@ void main() {
     float centerOffsetZ = (u_height * u_scale) * 0.5;
     float flippedZ = u_height * u_scale - scaledPosition.z;
     vec2 screenPos = vec2(
-        flippedZ - centerOffsetZ + u_resolution.x * 0.5,
-        scaledPosition.y + u_resolution.y * 0.5
+        flippedZ - centerOffsetZ,
+        scaledPosition.y
     );
     
-    // Apply position offset (in screen coordinates)
+    // Center in screen space (convert resolution from device pixels to screen coordinates)
+    vec2 screenResolution = u_resolution / u_devicePixelRatio;
+    screenPos += screenResolution * 0.5;
+    
+    // Apply position offset (in screen coordinates, will be multiplied by DPR)
     screenPos += u_positionOffset;
     
+    // Convert to clip space
     vec2 positionInDevicePixels = screenPos * u_devicePixelRatio;
     vec2 clipSpace = ((positionInDevicePixels / u_resolution) * 2.0 - 1.0) * vec2(1, -1);
     
@@ -101,10 +106,10 @@ uniform vec3 u_glowColor;
 void main() {
     float yellowHemisphereRadius = u_baseRadius * (u_whiteRadiusRatio + u_yellowRadiusRatio);
     float maxHemisphereRadius = yellowHemisphereRadius;
-    float minPossibleZ = -maxHemisphereRadius - 50.0;
-    float maxPossibleZ = maxHemisphereRadius + 50.0;
-    bool isHemisphere = (v_position.z < 0.01 && v_position.z >= minPossibleZ) &&
-                        v_position.z <= maxPossibleZ;
+    float minPossibleZ = u_height - maxHemisphereRadius - 200.0;
+    float maxPossibleZ = u_height + maxHemisphereRadius + 50.0;
+    bool isHemisphere = (v_position.z > u_height + 0.01 || v_position.z < -0.1) &&
+                        v_position.z >= minPossibleZ && v_position.z <= maxPossibleZ;
     
     float distFromCenter;
     float yellowRadius;
@@ -118,9 +123,9 @@ void main() {
         if (v_coneType < 0.5) {
             baseColor = vec3(1.0, 1.0, 1.0);
             float whiteHemisphereRadius = u_baseRadius * u_whiteRadiusRatio;
-            float baseZ = 0.0; // Hemisphere at base (z=0)
-            float zRelative = v_position.z - baseZ; // zRelative is negative (hemisphere extends downward)
-            float cosPhi = zRelative / whiteHemisphereRadius; // zRelative is negative, so cosPhi will be negative
+            float baseZ = u_height;
+            float zRelative = v_position.z - baseZ;
+            float cosPhi = -zRelative / whiteHemisphereRadius;
             cosPhi = clamp(cosPhi, 0.0, 1.0);
             float sinPhi = sqrt(1.0 - cosPhi * cosPhi);
             whiteRadius = whiteHemisphereRadius * sinPhi;
@@ -128,9 +133,9 @@ void main() {
         } else if (v_coneType < 1.5) {
             float whiteHemisphereRadius = u_baseRadius * u_whiteRadiusRatio;
             float yellowHemisphereRadius = u_baseRadius * (u_whiteRadiusRatio + u_yellowRadiusRatio);
-            float baseZ = 0.0; // Hemisphere at base (z=0)
-            float zRelative = v_position.z - baseZ; // zRelative is negative (hemisphere extends downward)
-            float cosPhi = zRelative / whiteHemisphereRadius; // zRelative is negative, so cosPhi will be negative
+            float baseZ = u_height;
+            float zRelative = v_position.z - baseZ;
+            float cosPhi = -zRelative / whiteHemisphereRadius;
             cosPhi = clamp(cosPhi, 0.0, 1.0);
             float sinPhi = sqrt(1.0 - cosPhi * cosPhi);
             whiteRadius = whiteHemisphereRadius * sinPhi;
@@ -185,3 +190,4 @@ void main() {
     
     gl_FragColor = vec4(finalColor, finalAlpha);
 }`;
+

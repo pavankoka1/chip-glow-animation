@@ -24,6 +24,8 @@ export default function GlowAnimation({
   const pathMetricsRef = useRef(new Map());
   const lastTsRef = useRef(null);
   const accumulatedSecRef = useRef(0);
+  const spark1StartLoggedRef = useRef(false);
+  const spark1EndLoggedRef = useRef(false);
   useFps({ sampleSize: 90 });
 
   const delayToSeconds = (v) =>
@@ -200,9 +202,18 @@ export default function GlowAnimation({
       if (!isPlaying) {
         animationIdRef[0] = null;
         gl.clear(gl.COLOR_BUFFER_BIT);
+        // Reset spark 1 tracking when animation stops
+        spark1StartLoggedRef.current = false;
+        spark1EndLoggedRef.current = false;
         return;
       }
 
+      // Reset tracking flags when animation restarts
+      if (lastTsRef.current == null) {
+        spark1StartLoggedRef.current = false;
+        spark1EndLoggedRef.current = false;
+      }
+      
       if (lastTsRef.current == null) lastTsRef.current = ts;
       const dtSec = Math.min(0.05, (ts - lastTsRef.current) / 1000);
       lastTsRef.current = ts;
@@ -444,6 +455,20 @@ export default function GlowAnimation({
           1.0,
           Math.max(0.0, elapsed / Math.max(durationSec, 0.0001))
         );
+
+        // Log spark id 1 start and end
+        if (path.id === 1 && isCirclePath) {
+          // Log start: first frame where elapsed > delaySec and spark becomes visible
+          if (!spark1StartLoggedRef.current && elapsed > 0 && normalizedTime > 0) {
+            console.log(`[Spark 1] START - elapsed: ${elapsed.toFixed(3)}s, normalizedTime: ${normalizedTime.toFixed(3)}, delay: ${delaySec.toFixed(3)}s, duration: ${durationSec.toFixed(3)}s`);
+            spark1StartLoggedRef.current = true;
+          }
+          // Log end: when normalizedTime reaches 1.0 (journey complete)
+          if (!spark1EndLoggedRef.current && normalizedTime >= 1.0) {
+            console.log(`[Spark 1] END - elapsed: ${elapsed.toFixed(3)}s, normalizedTime: ${normalizedTime.toFixed(3)}, total time from start: ${(elapsed).toFixed(3)}s, expected duration: ${durationSec.toFixed(3)}s`);
+            spark1EndLoggedRef.current = true;
+          }
+        }
 
         let easedNormalizedTime = isCirclePath
           ? applyEasingCircle(normalizedTime)
