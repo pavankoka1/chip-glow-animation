@@ -98,12 +98,12 @@ export default function SvgAnimationWebGL({
     const threshold = 1.09;
 
     const animate = () => {
-      animationIdRef.current = requestAnimationFrame(animate);
-
-      // Early exit if not playing
       if (!isPlayingRef.current || !startTimeRef.current) {
+        animationIdRef.current = null;
         return;
       }
+
+      animationIdRef.current = requestAnimationFrame(animate);
 
       const now = performance.now();
       const elapsed = (now - startTimeRef.current) / 1000;

@@ -8,6 +8,7 @@ import {
 } from "./utils/webglUtils";
 import { fragmentShaderSource, vertexShaderSource } from "./CircleSparkWebGL/shaders";
 import { hexToRgbNormalized } from "./utils/colorUtils";
+import { MAX_DT_SEC, MIN_DT_SEC, MIN_DURATION_MS } from "../constants/animationConstants";
 
 // Context for sharing WebGL resources
 const SharedWebGLContext = createContext(null);
@@ -42,9 +43,13 @@ export function SharedWebGLProvider({ children }) {
   const animationRegistryRef = useRef(new Map());
   const cleanupRef = useRef(null);
 
-  // Register/unregister animations
+  const animateRef = useRef(null);
+
   const registerAnimation = useRef((id, data) => {
     animationRegistryRef.current.set(id, data);
+    if (animateRef.current && animationIdRef.current === null && glRef.current) {
+      animationIdRef.current = requestAnimationFrame(animateRef.current);
+    }
   });
 
   const unregisterAnimation = useRef((id) => {
@@ -194,35 +199,38 @@ export function SharedWebGLProvider({ children }) {
 
       // Main animation loop - renders all registered animations
       const animate = (ts) => {
+        const registry = animationRegistryRef.current;
+
+        if (registry.size === 0) {
+          animationIdRef.current = null;
+          gl.clearColor(0, 0, 0, 0);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+          return;
+        }
+
         if (lastTsRef.current == null) lastTsRef.current = ts;
-        const dtSec = Math.min(0.05, (ts - lastTsRef.current) / 1000);
+        const rawDtSec = (ts - lastTsRef.current) / 1000;
+        const dtSec = Math.max(MIN_DT_SEC, Math.min(MAX_DT_SEC, rawDtSec));
         lastTsRef.current = ts;
 
         gl.clearColor(0, 0, 0, 0);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        // Collect all points from all registered animations
         const allPoints = [];
-        const registry = animationRegistryRef.current;
-
-        if (registry.size === 0) {
-          animationIdRef.current = requestAnimationFrame(animate);
-          return;
-        }
+        let hasActiveAnimations = false;
 
         for (const [id, animationData] of registry) {
           const {
             generatePoints,
             calculateMetrics,
             isPlayingRef,
-            anchorEls, // Array of { element, delay, anchorRectRef, anchorCenterRef, startTimeRef }
+            anchorEls,
             pathConfig,
             globalConfig,
           } = animationData;
 
           const isPlaying = isPlayingRef?.current || false;
 
-          // Skip if not playing
           if (!isPlaying) {
             continue;
           }
@@ -262,7 +270,10 @@ export function SharedWebGLProvider({ children }) {
 
             const adjustedElapsed = elapsed - delayMs;
             const durationMs = pathConfig?.animationTimeMs || 0;
-            const normalizedTime = Math.min(1.0, adjustedElapsed / durationMs);
+            // Prevent division by zero and handle high FPS precision issues
+            // Use minimum duration to ensure stable calculations on high refresh rate displays
+            const safeDurationMs = Math.max(durationMs, MIN_DURATION_MS);
+            const normalizedTime = Math.min(1.0, Math.max(0, adjustedElapsed / safeDurationMs));
 
             // Calculate metrics if needed
             if (!anchorRectRef?.current) {
@@ -286,14 +297,23 @@ export function SharedWebGLProvider({ children }) {
         // Render all points in a single draw call
         if (allPoints.length > 0) {
           const count = allPoints.length;
+          // Resize buffers if needed (with safety margin to avoid frequent resizing)
           if (bufferDataRef.current.maxPoints < count) {
-            bufferDataRef.current.maxPoints = count * 2;
-            bufferDataRef.current.pos = new Float32Array(count * 2);
-            bufferDataRef.current.rad = new Float32Array(count);
-            bufferDataRef.current.col = new Float32Array(count * 3);
-            bufferDataRef.current.alp = new Float32Array(count);
-            bufferDataRef.current.along = new Float32Array(count);
-            bufferDataRef.current.glowRad = new Float32Array(count);
+            // Allocate with 2x safety margin to reduce frequent resizing
+            const newMaxPoints = Math.ceil(count * 2);
+            bufferDataRef.current.maxPoints = newMaxPoints;
+            // Allocate arrays with correct sizes (pos needs 2 floats per point, col needs 3, etc.)
+            bufferDataRef.current.pos = new Float32Array(newMaxPoints * 2);
+            bufferDataRef.current.rad = new Float32Array(newMaxPoints);
+            bufferDataRef.current.col = new Float32Array(newMaxPoints * 3);
+            bufferDataRef.current.alp = new Float32Array(newMaxPoints);
+            bufferDataRef.current.along = new Float32Array(newMaxPoints);
+            bufferDataRef.current.glowRad = new Float32Array(newMaxPoints);
+            
+            // Log buffer resize for debugging (minimal logging)
+            if (count > 1000) {
+              console.log(`[WebGL] Buffer resized: ${count} points -> ${newMaxPoints} maxPoints`);
+            }
           }
 
           const { pos, rad, col, alp, along, glowRad } = bufferDataRef.current;
@@ -412,13 +432,22 @@ export function SharedWebGLProvider({ children }) {
           gl.enableVertexAttribArray(a.glowRadius);
           gl.vertexAttribPointer(a.glowRadius, 1, gl.FLOAT, false, 0, 0);
 
-          gl.drawArrays(gl.POINTS, 0, count);
+          // Safety check: ensure buffer is large enough before drawing
+          if (count > bufferDataRef.current.maxPoints) {
+            console.error(`[WebGL] Buffer overflow detected! count=${count}, maxPoints=${bufferDataRef.current.maxPoints}`);
+            // Clamp count to prevent crash
+            const safeCount = Math.min(count, bufferDataRef.current.maxPoints);
+            gl.drawArrays(gl.POINTS, 0, safeCount);
+          } else {
+            gl.drawArrays(gl.POINTS, 0, count);
+          }
         }
 
         animationIdRef.current = requestAnimationFrame(animate);
       };
 
-        animationIdRef.current = requestAnimationFrame(animate);
+      animateRef.current = animate;
+      animationIdRef.current = requestAnimationFrame(animate);
 
         // Store cleanup function
         cleanupRef.current = () => {

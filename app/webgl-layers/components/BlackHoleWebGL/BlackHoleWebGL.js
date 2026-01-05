@@ -113,12 +113,12 @@ export default function BlackHoleWebGL({
     const totalDurationMs = delayMs + totalPhaseMs;
 
     const animate = () => {
-      animationIdRef.current = requestAnimationFrame(animate);
-
-      // Early exit if not playing
       if (!isPlayingRef.current || !startTimeRef.current) {
+        animationIdRef.current = null;
         return;
       }
+
+      animationIdRef.current = requestAnimationFrame(animate);
 
       const now = performance.now();
       const elapsed = now - startTimeRef.current; // Already in milliseconds

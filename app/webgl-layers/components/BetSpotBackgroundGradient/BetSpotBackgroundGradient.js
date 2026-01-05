@@ -96,11 +96,12 @@ export default function BetSpotBackgroundGradient({
     const svgGlowSpread = svgPathConfig?.glowSpread || 0.12;
 
     const animate = () => {
-      animationIdRef.current = requestAnimationFrame(animate);
-
       if (!isPlayingRef.current || !startTimeRef.current) {
+        animationIdRef.current = null;
         return;
       }
+
+      animationIdRef.current = requestAnimationFrame(animate);
 
       const now = performance.now();
       const elapsed = (now - startTimeRef.current) / 1000;
