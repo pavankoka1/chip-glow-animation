@@ -49,6 +49,7 @@ uniform float u_glowOpacity;
 uniform float u_whiteCoverage;
 uniform float u_headTaperRatio;
 uniform float u_headCurve;
+uniform vec3 u_glowColor; // Optional separate glow color (if not provided, uses sparkColor)
 
 void main() {
   vec2 coord = gl_PointCoord - vec2(0.5, 0.5);
@@ -139,7 +140,10 @@ void main() {
     // Glow fades from glowOpacity at core edge to 0 at glow edge
     float glowAlpha = u_glowOpacity * (1.0 - glowDist);
     
-    finalColor = v_sparkColor;
+    // Use separate glow color if provided (u_glowColor != vec3(-1,-1,-1)), otherwise use sparkColor
+    // We use (-1,-1,-1) as a sentinel value to indicate "use sparkColor"
+    vec3 glowColorToUse = (u_glowColor.r >= 0.0) ? u_glowColor : v_sparkColor;
+    finalColor = glowColorToUse;
     finalAlpha = glowAlpha;
   } else {
     discard;

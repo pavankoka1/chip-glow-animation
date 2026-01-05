@@ -3,7 +3,7 @@ import { SvgDefs } from "./SvgDefs";
 import { SvgPaths } from "./SvgPaths";
 import { calculateSvgDimensions } from "./utils/svgCalculations";
 
-const BetSpotSvg = function BetSpotSvg({ betspotRef, svgRef }) {
+const BetSpotSvg = function BetSpotSvg({ betspotRef, svgRef, borderSize = null }) {
   const [dimensions, setDimensions] = useState({ width: 500, height: 500 });
 
   const baseId = useId();
@@ -53,7 +53,7 @@ const BetSpotSvg = function BetSpotSvg({ betspotRef, svgRef }) {
   }, [betspotRef]);
 
   const { width, height } = dimensions;
-  const svgCalculations = calculateSvgDimensions(width, height);
+  const svgCalculations = calculateSvgDimensions(width, height, borderSize);
 
   return (
     <svg

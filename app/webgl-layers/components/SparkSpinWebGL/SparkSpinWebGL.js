@@ -17,6 +17,9 @@ export default function SparkSpinWebGL({
   
   const isPlayingRef = useRef(isPlaying);
   
+  // Store the base time when animation starts (shared across all anchorEls)
+  const animationBaseTimeRef = useRef(null);
+  
   // Normalize anchorEls: support both legacy (single anchorEl) and new (array) formats
   const normalizedAnchorEls = useRef([]);
   
@@ -25,18 +28,37 @@ export default function SparkSpinWebGL({
   
   // Metrics cache per anchorEl
   const metricsCacheMap = useRef(new Map());
+
+  // Get SVG animation config to sync scaling
+  const svgPathConfig = globalConfig.paths?.find(
+    (p) => p.type === "svg" && p.enabled !== false
+  );
   
   // Normalize anchorEls whenever anchorEl or anchorEls change
   useEffect(() => {
     // Convert legacy single anchorEl to array format
+    const pathDelay = pathConfig?.delay || 0;
     if (anchorEl && !anchorEls) {
-      normalizedAnchorEls.current = [{ element: anchorEl, delay: pathConfig?.delay || 0 }];
+      normalizedAnchorEls.current = [{ element: anchorEl, delay: pathDelay }];
     } else if (anchorEls && Array.isArray(anchorEls)) {
       // New format: array of { element, delay? }
-      normalizedAnchorEls.current = anchorEls.map(ae => ({
-        element: typeof ae === 'object' && ae.element ? ae.element : ae,
-        delay: (typeof ae === 'object' && ae.delay !== undefined) ? ae.delay : (pathConfig?.delay || 0),
-      }));
+      // Combine betspot delay (from anchorEls) with path delay (from pathConfig)
+      normalizedAnchorEls.current = anchorEls.map(ae => {
+        // Get betspot delay (delay between betspots)
+        const betspotDelay = typeof ae === 'object' && 'delay' in ae ? (ae.delay || 0) : 0;
+        // Total delay = path delay + betspot delay
+        const totalDelay = pathDelay + betspotDelay;
+        
+        // If ae is already { element, delay }, use the element and combine delays
+        if (typeof ae === 'object' && 'element' in ae) {
+          return { element: ae.element, delay: totalDelay };
+        }
+        // Otherwise, extract element
+        return {
+          element: typeof ae === 'object' && ae.element ? ae.element : ae,
+          delay: totalDelay,
+        };
+      });
     } else {
       normalizedAnchorEls.current = [];
     }
@@ -46,16 +68,34 @@ export default function SparkSpinWebGL({
   useEffect(() => {
     isPlayingRef.current = isPlaying;
     if (isPlaying) {
+      // Set base time for animation start (shared across all anchorEls)
+      animationBaseTimeRef.current = performance.now();
+      
       // Reset start time for all anchorEls when playing starts
-      normalizedAnchorEls.current.forEach((ae, index) => {
-        const key = `${ae.element?.id || index}`;
-        let refs = anchorElRefsMap.current.get(key);
-        if (refs) {
-          refs.startTimeRef.current = performance.now();
-        }
+      // Use a small delay to ensure refs are initialized
+      requestAnimationFrame(() => {
+        const baseTime = animationBaseTimeRef.current || performance.now();
+        normalizedAnchorEls.current.forEach((ae, index) => {
+          const key = `${ae.element?.id || index}`;
+          let refs = anchorElRefsMap.current.get(key);
+          
+          if (refs) {
+            // Set start time - delays will be handled in SharedWebGLContext
+            refs.startTimeRef.current = baseTime;
+          } else {
+            // If refs don't exist yet, initialize them
+            const newRefs = {
+              anchorRectRef: { current: null },
+              anchorCenterRef: { current: { x: 0, y: 0 } },
+              startTimeRef: { current: baseTime },
+            };
+            anchorElRefsMap.current.set(key, newRefs);
+          }
+        });
       });
     } else {
       // Clear start time for all anchorEls when stopped
+      animationBaseTimeRef.current = null;
       anchorElRefsMap.current.forEach((refs) => {
         refs.startTimeRef.current = null;
       });
@@ -85,19 +125,71 @@ export default function SparkSpinWebGL({
 
       const updateAnchor = () => {
         if (!element) return;
+        // Get base dimensions (unscaled) from offsetWidth/offsetHeight
+        const baseWidth = element.offsetWidth || 0;
+        const baseHeight = element.offsetHeight || 0;
+        
+        // Get current scale from element's transform (set by SVG animation)
+        let currentScale = 1.0;
+        const transform = element.style.transform || window.getComputedStyle(element).transform || '';
+        const scaleMatch = transform.match(/scale\(([\d.]+)\)/);
+        if (scaleMatch) {
+          currentScale = parseFloat(scaleMatch[1]) || 1.0;
+        }
+        
+        // Get position from getBoundingClientRect (includes scale)
         const rect = element.getBoundingClientRect();
-        refs.anchorRectRef.current = rect;
+        
+        // Create scaled rect with correct dimensions
+        const scaledRect = {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: baseWidth * currentScale,
+          height: baseHeight * currentScale,
+          x: rect.x,
+          y: rect.y,
+        };
+        
+        refs.anchorRectRef.current = scaledRect;
         refs.anchorCenterRef.current = {
           x: rect.left + rect.width / 2,
           y: rect.top + rect.height / 2,
         };
       };
 
+      // Initial update
       updateAnchor();
+
+      // Update rect continuously during animation to track scale changes
+      // The SVG animation updates the scale via CSS transform, so we need to poll it
+      let animationFrameId = null;
+      const updateLoop = () => {
+        updateAnchor();
+        animationFrameId = requestAnimationFrame(updateLoop);
+      };
+      updateLoop();
+
+      // Use ResizeObserver to track element size changes (scales with betspot)
+      if (typeof ResizeObserver !== "undefined") {
+        const resizeObserver = new ResizeObserver(() => {
+          updateAnchor();
+        });
+        resizeObserver.observe(element);
+        cleanupFunctions.push(() => {
+          resizeObserver.disconnect();
+        });
+      }
+
+      // Also listen to window resize/scroll for position changes
       window.addEventListener("resize", updateAnchor);
       window.addEventListener("scroll", updateAnchor, true);
 
       cleanupFunctions.push(() => {
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+        }
         window.removeEventListener("resize", updateAnchor);
         window.removeEventListener("scroll", updateAnchor, true);
       });
@@ -123,7 +215,9 @@ export default function SparkSpinWebGL({
     // Merge config values
     const merged = {
       sparkColor:
-        pathConfig.sparkColor || globalConfig.sparkColor || "#D70C0C",
+        pathConfig.sparkColor || globalConfig.sparkColor || "#ffffff", // Default to white for inner color
+      glowColor:
+        pathConfig.glowColor || globalConfig.glowColor || null,
       headRadius: pathConfig.headRadius || globalConfig.headRadius || 2,
       tailRadius: pathConfig.tailRadius || globalConfig.tailRadius || 0.4,
       length:
@@ -161,8 +255,9 @@ export default function SparkSpinWebGL({
       const centerX = anchorCenterRef.current.x;
       const centerY = anchorCenterRef.current.y;
 
-      // Create cache key based on rect dimensions
-      const cacheKey = `${rect.width}_${rect.height}_${centerX}_${centerY}`;
+      // Create cache key based on rect dimensions (includes scale)
+      // Use high precision to catch scale changes
+      const cacheKey = `${rect.width.toFixed(2)}_${rect.height.toFixed(2)}_${centerX.toFixed(1)}_${centerY.toFixed(1)}`;
 
       // Return cached metrics if available and valid
       const cached = metricsCacheMap.current.get(cacheKey);
@@ -170,7 +265,7 @@ export default function SparkSpinWebGL({
         return cached.metrics;
       }
 
-      // Use spin metrics calculation
+      // Use spin metrics calculation with scaled rect
       const metrics = computeSpinMetrics(
         pathConfig,
         globalConfig,
@@ -186,10 +281,25 @@ export default function SparkSpinWebGL({
     };
 
     const generatePoints = (metrics, normalizedTime, anchorCenterRef, anchorRectRef) => {
+      // Calculate headRadius to cover both border strokes
+      // If headRadius is not explicitly set in config, calculate it to span from inner to outer border
+      let effectiveHeadRadius = merged.headRadius;
+      if (!pathConfig.headRadius && metrics?.borderWidth) {
+        // headRadius should be borderWidth / 2 to cover from inner edge to outer edge
+        // borderWidth is the total span from content edge to outer border edge
+        effectiveHeadRadius = metrics.borderWidth / 2;
+      }
+      
+      // Create a copy of merged with updated headRadius
+      const mergedWithHeadRadius = {
+        ...merged,
+        headRadius: effectiveHeadRadius,
+      };
+      
       return generateSparkSpinPoints(
         metrics,
         normalizedTime,
-        merged,
+        mergedWithHeadRadius,
         sparkColorRgb,
         anchorCenterRef,
         anchorRectRef
@@ -199,26 +309,34 @@ export default function SparkSpinWebGL({
     // Build anchorEls array with refs for registration
     const anchorElsForRegistration = normalizedAnchorEls.current.map((ae, index) => {
       const key = `${ae.element?.id || index}`;
-      const refs = anchorElRefsMap.current.get(key);
+      let refs = anchorElRefsMap.current.get(key);
       if (!refs) {
         // Initialize refs if they don't exist yet
-        const newRefs = {
+        refs = {
           anchorRectRef: { current: null },
           anchorCenterRef: { current: { x: 0, y: 0 } },
           startTimeRef: { current: null },
         };
-        anchorElRefsMap.current.set(key, newRefs);
-        return {
-          element: ae.element,
-          delay: ae.delay,
-          anchorRectRef: newRefs.anchorRectRef,
-          anchorCenterRef: newRefs.anchorCenterRef,
-          startTimeRef: newRefs.startTimeRef,
-        };
+        anchorElRefsMap.current.set(key, refs);
       }
+      
+      // Set startTime if playing (this ensures it's set during registration)
+      // Use a consistent base time for all anchorEls so delays work correctly
+      if (isPlayingRef.current && !refs.startTimeRef.current) {
+        // Use the same base time that was set in the useEffect
+        // This ensures all anchorEls have the same start time, and delays are applied correctly
+        const baseTime = animationBaseTimeRef.current || performance.now();
+        refs.startTimeRef.current = baseTime;
+      }
+      
+      // Extract delay - ensure it's a number
+      const delayValue = typeof ae === 'object' && 'delay' in ae 
+        ? (typeof ae.delay === 'number' ? ae.delay : 0)
+        : 0;
+      
       return {
         element: ae.element,
-        delay: ae.delay,
+        delay: delayValue, // Get delay from anchorEl data
         anchorRectRef: refs.anchorRectRef,
         anchorCenterRef: refs.anchorCenterRef,
         startTimeRef: refs.startTimeRef,

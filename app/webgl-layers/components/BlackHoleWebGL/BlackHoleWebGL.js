@@ -9,6 +9,7 @@ export default function BlackHoleWebGL({
   globalConfig = {},
 }) {
   const svgRef = useRef(null);
+  const containerRef = useRef(null);
   const animationIdRef = useRef(null);
   const startTimeRef = useRef(null);
   const isPlayingRef = useRef(isPlaying);
@@ -20,6 +21,7 @@ export default function BlackHoleWebGL({
     visibility: null,
     opacity: null,
     transform: null,
+    borderRadius: null,
   });
 
   // Cache calculated values
@@ -28,10 +30,7 @@ export default function BlackHoleWebGL({
     dimensionsKey: null,
   });
 
-  // Get SVG animation config to sync timing
-  const svgPathConfig = globalConfig.paths?.find(
-    (p) => p.type === "svg" && p.enabled !== false
-  );
+  // Removed SVG sync - black hole now uses its own independent timing
 
   // Update refs when props change
   useEffect(() => {
@@ -93,9 +92,10 @@ export default function BlackHoleWebGL({
   }, [anchorEl]);
 
   useEffect(() => {
-    if (!svgRef.current || !anchorEl) return;
+    if (!svgRef.current || !containerRef.current || !anchorEl) return;
 
     const svgElement = svgRef.current;
+    const containerElement = containerRef.current;
     const styleCache = styleCacheRef.current;
     const calcCache = calcCacheRef.current;
 
@@ -110,13 +110,7 @@ export default function BlackHoleWebGL({
     const phase1Ms = merged.phase1TimeMs;
     const phase2Ms = merged.phase2TimeMs;
     const totalPhaseMs = phase1Ms + phase2Ms;
-
-    // Get SVG animation timing to sync fade - pre-calculate once
-    const svgDelay = svgPathConfig?.delay || 540;
-    const svgDurationMs = svgPathConfig?.animationTimeMs || 1000;
-    const svgFadeStartTime = svgDelay + svgDurationMs / 2; // SVG starts fading at half duration
-    const svgEndTime = svgDelay + svgDurationMs; // SVG ends here
-    const svgFadeDuration = svgEndTime - svgFadeStartTime;
+    const totalDurationMs = delayMs + totalPhaseMs;
 
     const animate = () => {
       animationIdRef.current = requestAnimationFrame(animate);
@@ -183,17 +177,38 @@ export default function BlackHoleWebGL({
         currentScale = scaleToCoverFull;
       }
 
-      // Sync fade with SVG animation
-      let opacity = 1;
-      if (elapsed >= svgFadeStartTime) {
-        // Start fading when SVG starts fading
-        const fadeProgress = (elapsed - svgFadeStartTime) / svgFadeDuration;
-        opacity = Math.max(0, 1 - fadeProgress);
+      // Calculate border radius: circular in phase 1, transition to betspot shape in phase 2
+      const betspotBorderRadius = 6.75; // Same as betspot border radius
+      const minDimension = Math.min(width, height);
+      const circularBorderRadius = minDimension / 2; // Perfect circle
+      let currentBorderRadius = circularBorderRadius;
+
+      if (animationElapsed < phase1Ms) {
+        // Phase 1: Keep circular (50% of min dimension)
+        currentBorderRadius = circularBorderRadius;
+      } else if (animationElapsed < totalPhaseMs) {
+        // Phase 2: Transition from circular to betspot border radius
+        const phase2Progress = (animationElapsed - phase1Ms) / phase2Ms;
+        currentBorderRadius =
+          circularBorderRadius +
+          phase2Progress * (betspotBorderRadius - circularBorderRadius);
+      } else {
+        // Animation complete: use betspot border radius
+        currentBorderRadius = betspotBorderRadius;
       }
 
-      // Hide completely when SVG ends
-      if (elapsed >= svgEndTime) {
-        // Only update if values changed
+      // Independent opacity: stay at full opacity during animation, fade out after completion
+      let opacity = 1;
+      const fadeOutDurationMs = 100; // Fade out duration after animation completes
+      const fadeOutStartTime = totalDurationMs;
+      const fadeOutEndTime = totalDurationMs + fadeOutDurationMs;
+
+      if (elapsed >= fadeOutStartTime && elapsed < fadeOutEndTime) {
+        // Fade out after animation completes
+        const fadeProgress = (elapsed - fadeOutStartTime) / fadeOutDurationMs;
+        opacity = Math.max(0, 1 - fadeProgress);
+      } else if (elapsed >= fadeOutEndTime) {
+        // Hide completely after fade out
         if (styleCache.visibility !== "hidden") {
           svgElement.style.visibility = "hidden";
           styleCache.visibility = "hidden";
@@ -225,6 +240,19 @@ export default function BlackHoleWebGL({
         svgElement.style.transformOrigin = "center center";
         styleCache.transform = transform;
       }
+
+      // Apply border radius to container and SVG rect (only if changed)
+      const borderRadiusStr = `${currentBorderRadius}px`;
+      if (styleCache.borderRadius !== borderRadiusStr) {
+        containerElement.style.borderRadius = borderRadiusStr;
+        // Update SVG rect border radius
+        const rectElement = svgElement.querySelector("rect");
+        if (rectElement) {
+          rectElement.setAttribute("rx", currentBorderRadius);
+          rectElement.setAttribute("ry", currentBorderRadius);
+        }
+        styleCache.borderRadius = borderRadiusStr;
+      }
     };
 
     animationIdRef.current = requestAnimationFrame(animate);
@@ -234,12 +262,14 @@ export default function BlackHoleWebGL({
         cancelAnimationFrame(animationIdRef.current);
       }
     };
-  }, [anchorEl, pathConfig, isPlaying, dimensions, svgPathConfig]);
+  }, [anchorEl, pathConfig, isPlaying, dimensions]);
 
   if (!anchorEl) return null;
 
   const { width, height } = dimensions;
-  const borderRadius = 6.75; // Same as betspot border radius (spark-spin uses this)
+  const betspotBorderRadius = 6.75; // Same as betspot border radius (spark-spin uses this)
+  const minDimension = Math.min(width, height);
+  const initialBorderRadius = minDimension / 2; // Start as perfect circle
 
   // Use only betspot element dimensions (not including any glow extension)
   const svgWidth = width;
@@ -247,6 +277,7 @@ export default function BlackHoleWebGL({
 
   return (
     <div
+      ref={containerRef}
       style={{
         position: "absolute",
         top: "50%",
@@ -257,7 +288,7 @@ export default function BlackHoleWebGL({
         marginLeft: `-${svgWidth / 2}px`,
         pointerEvents: "none",
         overflow: "hidden",
-        borderRadius: `${borderRadius}px`,
+        borderRadius: `${initialBorderRadius}px`, // Initial circular shape
         zIndex: 2, // Above factorial-noise (zIndex: 1)
       }}
     >
@@ -299,8 +330,8 @@ export default function BlackHoleWebGL({
           y="0"
           width={svgWidth}
           height={svgHeight}
-          rx={borderRadius}
-          ry={borderRadius}
+          rx={initialBorderRadius}
+          ry={initialBorderRadius}
           fill={`url(#blackHoleGradient_${blackHoleGradientId})`}
         />
       </svg>

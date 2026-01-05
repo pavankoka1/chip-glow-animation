@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import FactorialNoiseCanvas from "../../../components/FactorialNoiseCanvas";
 
 export default function FactorialNoiseWebGL({
@@ -13,6 +13,7 @@ export default function FactorialNoiseWebGL({
   const animationIdRef = useRef(null);
   const startTimeRef = useRef(null);
   const isPlayingRef = useRef(isPlaying);
+  const [dimensions, setDimensions] = useState({ width: 43, height: 46 });
   
   // Cache style values to avoid redundant DOM updates
   const styleCacheRef = useRef({
@@ -21,10 +22,39 @@ export default function FactorialNoiseWebGL({
     overflow: null,
   });
 
-  // Find SVG animation config to sync timing
+  // Get SVG animation config to sync scaling
   const svgPathConfig = globalConfig.paths?.find(
     (p) => p.type === "svg" && p.enabled !== false
   );
+
+  // Update dimensions when anchor element changes
+  useEffect(() => {
+    const element = anchorEl?.current || anchorEl;
+    if (!element) return;
+
+    const updateDimensions = () => {
+      if (element) {
+        try {
+          // Get base dimensions (unscaled)
+          const width = element.offsetWidth || 0;
+          const height = element.offsetHeight || 0;
+
+          if (width > 0 && height > 0) {
+            setDimensions({ width, height });
+          }
+        } catch (error) {
+          // Silently handle errors
+        }
+      }
+    };
+
+    // Initial update
+    if (typeof window !== "undefined") {
+      requestAnimationFrame(() => {
+        updateDimensions();
+      });
+    }
+  }, [anchorEl]);
 
   // Update refs when props change
   useEffect(() => {
@@ -46,20 +76,30 @@ export default function FactorialNoiseWebGL({
     if (!containerRef.current || !anchorEl) return;
 
     const containerElement = containerRef.current;
+    const element = anchorEl?.current || anchorEl;
     const merged = {
       delay: pathConfig.delay || 0,
       animationTimeMs: pathConfig.animationTimeMs || 420,
     };
 
-    // SVG animation timing for sync - pre-calculate once
+    // Get SVG animation timing to calculate scale
     const svgDelay = svgPathConfig?.delay || 540;
     const svgDuration = svgPathConfig?.animationTimeMs || 1000;
+    const svgMaxScale = svgPathConfig?.maxScale || 1.1;
     const svgDelaySec = svgDelay / 1000;
     const svgDurationSec = svgDuration / 1000;
-    const svgFadeOutStart = svgDelaySec + svgDurationSec / 2; // Start of second half
-    const svgFadeOutEnd = svgDelaySec + svgDurationSec; // End of SVG animation
+    const maxScaleDiff = svgMaxScale - 1.0;
+
+    // Independent timing - use own animation duration
+    // animationTimeMs represents how long it stays visible at full opacity
+    // Quick fades are added before and after
     const delaySec = merged.delay / 1000;
-    const durationSec = merged.animationTimeMs / 1000;
+    const visibleDurationSec = merged.animationTimeMs / 1000; // Time at full opacity
+    const fadeInDurationSec = 0.08; // Quick fade in (80ms)
+    const fadeOutDurationSec = 0.12; // Quick fade out (120ms)
+    const fadeInEndTime = delaySec + fadeInDurationSec;
+    const fadeOutStartTime = delaySec + fadeInDurationSec + visibleDurationSec;
+    const animationEndTime = delaySec + fadeInDurationSec + visibleDurationSec + fadeOutDurationSec;
 
     const styleCache = styleCacheRef.current;
 
@@ -73,6 +113,24 @@ export default function FactorialNoiseWebGL({
 
       const now = performance.now();
       const elapsed = (now - startTimeRef.current) / 1000;
+
+      // Calculate scale from SVG animation (same logic as SvgAnimationWebGL)
+      let currentScale = 1.0;
+      if (svgPathConfig && element) {
+        const svgElapsed = Math.max(0, elapsed - svgDelaySec);
+        if (svgElapsed >= 0 && svgElapsed < svgDurationSec) {
+          const progress = svgElapsed / svgDurationSec;
+          if (progress < 0.5) {
+            // First half: scale up from 1.0 to maxScale
+            currentScale = 1.0 + maxScaleDiff * (progress * 2);
+          } else {
+            // Second half: scale down from maxScale to 1.0
+            currentScale = svgMaxScale - maxScaleDiff * ((progress - 0.5) * 2);
+          }
+        } else if (svgElapsed >= svgDurationSec) {
+          currentScale = 1.0;
+        }
+      }
 
       // Early exit if in delay period
       if (elapsed < delaySec) {
@@ -92,37 +150,23 @@ export default function FactorialNoiseWebGL({
         return;
       }
 
-      // Calculate animation elapsed time (after delay)
-      const animationElapsed = Math.max(0, elapsed - delaySec);
-
-      // Check if SVG animation is active
-      const isSvgActive = elapsed >= svgDelaySec && elapsed < svgFadeOutEnd;
-      const isSvgFadingOut = elapsed >= svgFadeOutStart && elapsed < svgFadeOutEnd;
-      const isAfterSvgComplete = elapsed >= svgFadeOutEnd;
-
-      // Calculate opacity based on animation progress
+      // Calculate opacity based on independent animation timing
       let opacity = 0;
 
-      if (isAfterSvgComplete) {
-        // After SVG animation completes: stay at 0 opacity (never reappear)
+      if (elapsed < fadeInEndTime) {
+        // Fade in phase
+        const fadeInProgress = (elapsed - delaySec) / fadeInDurationSec;
+        opacity = Math.max(0, Math.min(1, fadeInProgress));
+      } else if (elapsed >= fadeInEndTime && elapsed < fadeOutStartTime) {
+        // Full opacity phase
+        opacity = 1;
+      } else if (elapsed >= fadeOutStartTime && elapsed < animationEndTime) {
+        // Fade out phase
+        const fadeOutProgress = (elapsed - fadeOutStartTime) / fadeOutDurationSec;
+        opacity = Math.max(0, 1 - fadeOutProgress);
+      } else {
+        // After animation completes: stay at 0 opacity
         opacity = 0;
-      } else if (animationElapsed >= 0 && animationElapsed < durationSec) {
-        // Fade in from 0 to 1 over the duration
-        opacity = Math.min(1, animationElapsed / durationSec);
-      } else if (animationElapsed >= durationSec) {
-        // After fade in complete: stay at full opacity until SVG starts fading
-        if (isSvgFadingOut) {
-          // Fade out in sync with SVG (second half of SVG animation)
-          const fadeOutProgress =
-            (elapsed - svgFadeOutStart) / (svgFadeOutEnd - svgFadeOutStart);
-          opacity = Math.max(0, 1 - fadeOutProgress);
-        } else if (isSvgActive) {
-          // SVG is active but not fading yet: stay at full opacity
-          opacity = 1;
-        } else {
-          // Before SVG starts: stay at full opacity
-          opacity = 1;
-        }
       }
 
       // Convert opacity to string for comparison
@@ -134,9 +178,17 @@ export default function FactorialNoiseWebGL({
         styleCache.opacity = opacityStr;
       }
 
-      // Apply border radius when SVG is active (same as SVG animation)
-      const borderRadius = isSvgActive ? "6.75px" : "";
-      const overflow = isSvgActive ? "hidden" : "";
+      // Apply border radius during animation (independent of SVG)
+      const isAnimationActive = elapsed >= delaySec && elapsed < animationEndTime;
+      const borderRadius = isAnimationActive ? "6.75px" : "";
+      const overflow = isAnimationActive ? "hidden" : "";
+
+      // Apply scale transform to match betspot scaling
+      const transform = `scale(${currentScale}) translateZ(0)`;
+      if (containerElement.style.transform !== transform) {
+        containerElement.style.transform = transform;
+        containerElement.style.transformOrigin = "center center";
+      }
 
       // Only update if values changed
       if (styleCache.borderRadius !== borderRadius) {
@@ -161,9 +213,7 @@ export default function FactorialNoiseWebGL({
 
   if (!anchorEl) return null;
 
-  // Get betspot dimensions
-  const width = anchorEl.offsetWidth || 43;
-  const height = anchorEl.offsetHeight || 46;
+  const { width, height } = dimensions;
 
   return (
     <div

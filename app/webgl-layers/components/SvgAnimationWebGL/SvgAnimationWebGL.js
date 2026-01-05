@@ -73,6 +73,14 @@ export default function SvgAnimationWebGL({
     const domCache = domCacheRef.current;
     const styleCache = styleCacheRef.current;
     
+    // Define merged config
+    const merged = {
+      delay: pathConfig.delay || 0,
+      animationTimeMs: pathConfig.animationTimeMs || 1000,
+      maxScale: pathConfig.maxScale || 1.1,
+      glowSpread: pathConfig.glowSpread || 0.12,
+    };
+    
     // Cache DOM elements once
     if (!domCache.backgroundGroup) {
       domCache.backgroundGroup = svgElement.querySelector(
@@ -83,20 +91,11 @@ export default function SvgAnimationWebGL({
       domCache.borderGroup = svgElement.querySelector('[data-svg-part="border"]');
     }
     
-    const merged = {
-      delay: pathConfig.delay || 0,
-      animationTimeMs: pathConfig.animationTimeMs || 1000,
-      maxScale: pathConfig.maxScale || 1.1,
-      glowSpread: pathConfig.glowSpread || 0.12,
-    };
-    
     // Pre-calculate constants
     const delaySec = merged.delay / 1000;
     const durationSec = merged.animationTimeMs / 1000;
     const maxScaleDiff = merged.maxScale - 1.0;
     const threshold = 1.09;
-    const glowColor = "rgba(255, 187, 1, 1)";
-    const glowColor2 = "rgba(255, 187, 1, 0.8)";
 
     const animate = () => {
       animationIdRef.current = requestAnimationFrame(animate);
@@ -345,9 +344,8 @@ export default function SvgAnimationWebGL({
               : 0;
         }
 
-        // Apply box shadow glow effect (only if intensity > 0)
+        // Apply box shadow glow effect (original implementation)
         if (glowIntensity > 0) {
-          // Cache original size if not already cached (only calculate once)
           if (!betspotOriginalSizeRef.current) {
             const rect = anchorEl.getBoundingClientRect();
             if (glowScale === 1.0) {
@@ -366,14 +364,19 @@ export default function SvgAnimationWebGL({
           const spread1 = baseSize * glowSpread;
           const spread2 = baseSize * (glowSpread * 0.5);
 
+          const glowColor = "rgba(255, 187, 1, 1)";
+          const glowColor2 = "rgba(255, 187, 1, 0.8)";
+
           const blur1 = baseBlur1 * glowIntensity * glowScale;
           const blur2 = baseBlur2 * glowIntensity * glowScale;
           const spreadRadius1 = spread1 * glowIntensity * glowScale;
           const spreadRadius2 = spread2 * glowIntensity * glowScale;
 
-          const boxShadow = `0 0 ${blur1}px ${spreadRadius1}px ${glowColor2}, 0 0 ${blur2}px ${spreadRadius2}px ${glowColor}`;
+          const boxShadow = `
+            0 0 ${blur1}px ${spreadRadius1}px ${glowColor2},
+            0 0 ${blur2}px ${spreadRadius2}px ${glowColor}
+          `;
           
-          // Only update if changed
           if (styleCache.anchorBoxShadow !== boxShadow) {
             anchorEl.style.boxShadow = boxShadow;
             styleCache.anchorBoxShadow = boxShadow;
@@ -383,7 +386,6 @@ export default function SvgAnimationWebGL({
             styleCache.anchorOverflow = "visible";
           }
         } else {
-          // Only update if changed
           if (styleCache.anchorBoxShadow !== "") {
             anchorEl.style.boxShadow = "";
             styleCache.anchorBoxShadow = "";
@@ -414,10 +416,13 @@ export default function SvgAnimationWebGL({
 
   if (!anchorEl) return null;
 
+  const borderSize = pathConfig.borderSize !== undefined ? pathConfig.borderSize : null;
+
   return (
     <BetSpotSvg
       betspotRef={anchorEl}
       svgRef={svgRef}
+      borderSize={borderSize}
     />
   );
 }

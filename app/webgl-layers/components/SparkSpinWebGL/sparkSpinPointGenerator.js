@@ -229,7 +229,8 @@ export function generateSparkSpinPoints(metrics, normalizedTime, merged, sparkCo
   const rect = anchorRectRef.current;
 
   const betspotWidth = rect ? rect.width : 100;
-  const lengthPx = betspotWidth / 2;
+  // Use length from config if provided (in pixels), otherwise default to betspotWidth / 2
+  const lengthPx = merged.length !== undefined ? merged.length : betspotWidth / 2;
 
   const halfWidth = metrics.halfWidth ?? 50;
   const halfHeight = metrics.halfHeight ?? 50;

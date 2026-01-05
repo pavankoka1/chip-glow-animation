@@ -7,6 +7,7 @@ import {
   getDevicePixelRatio,
 } from "./utils/webglUtils";
 import { fragmentShaderSource, vertexShaderSource } from "./CircleSparkWebGL/shaders";
+import { hexToRgbNormalized } from "./utils/colorUtils";
 
 // Context for sharing WebGL resources
 const SharedWebGLContext = createContext(null);
@@ -162,6 +163,7 @@ export function SharedWebGLProvider({ children }) {
           whiteCoverage: gl.getUniformLocation(program, "u_whiteCoverage"),
           headTaperRatio: gl.getUniformLocation(program, "u_headTaperRatio"),
           headCurve: gl.getUniformLocation(program, "u_headCurve"),
+          glowColor: gl.getUniformLocation(program, "u_glowColor"),
         };
 
         buffersRef.current = {
@@ -248,9 +250,12 @@ export function SharedWebGLProvider({ children }) {
             }
 
             const elapsed = currentTime - startTime;
-            const delayMs = delay || 0;
+            const delayMs = typeof delay === 'number' ? delay : 0;
 
             // Skip if in delay period
+            // Note: elapsed is time since startTime was set
+            // If delay is 200ms, we wait until elapsed >= 200ms before rendering
+            // Check elapsed < delayMs (not delayMs > 0) because delay=0 should render immediately
             if (elapsed < delayMs) {
               continue;
             }
@@ -340,6 +345,21 @@ export function SharedWebGLProvider({ children }) {
             uniformsRef.current.headCurve,
             pathConfig.headCurve ?? globalConfig.headCurve ?? 0.2
           );
+          
+          // Set glow color uniform (use glowColor if provided, otherwise use sentinel value (-1,-1,-1) to signal "use sparkColor")
+          const glowColorHex = pathConfig.glowColor || globalConfig.glowColor || null;
+          if (glowColorHex && uniformsRef.current.glowColor) {
+            const glowColorRgb = hexToRgbNormalized(glowColorHex);
+            gl.uniform3f(
+              uniformsRef.current.glowColor,
+              glowColorRgb[0],
+              glowColorRgb[1],
+              glowColorRgb[2]
+            );
+          } else if (uniformsRef.current.glowColor) {
+            // Use sentinel value (-1,-1,-1) to signal the shader to use sparkColor
+            gl.uniform3f(uniformsRef.current.glowColor, -1, -1, -1);
+          }
 
           const b = buffersRef.current;
           const a = attribsRef.current;

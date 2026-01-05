@@ -20,17 +20,28 @@ const MemoizedMultiplierWebGL = memo(MultiplierWebGL);
 /**
  * BetSpotAnimations - Wraps and controls all animation components
  * @param {Object} props
- * @param {HTMLElement} props.anchorEl - The anchor element (betspot) to animate around
- * @param {Array} props.anchorEls - Optional: Array of { element, delay? } for multiple betspots
+ * @param {HTMLElement} props.anchorEl - The anchor element (betspot) to animate around (legacy, for backward compatibility)
+ * @param {Array} props.anchorEls - Array of { element, delay? } for multiple betspots
  * @param {Object} props.config - Global configuration object
  * @param {boolean} props.isPlaying - Whether animations are currently playing
+ * @param {Array} props.renderOnly - Optional: Array of animation types to render (e.g., ["svg", "multiplier"])
  */
 export default function BetSpotAnimations({
   anchorEl,
   anchorEls,
   config,
   isPlaying,
+  renderOnly = null, // If provided, only render these animation types
 }) {
+  // Normalize anchorEls: use anchorEls array if provided, otherwise fall back to single anchorEl
+  const normalizedAnchorEls = anchorEls && anchorEls.length > 0 
+    ? anchorEls 
+    : anchorEl 
+      ? [{ element: anchorEl, delay: 0 }]
+      : [];
+
+  // Get the first anchorEl for animations that don't support multiple yet (backward compatibility)
+  const firstAnchorEl = normalizedAnchorEls[0]?.element || anchorEl;
   // Get enabled circle-spark paths
   const circleSparkPaths =
     config.paths?.filter(
@@ -65,87 +76,100 @@ export default function BetSpotAnimations({
       (p) => p.type === "multiplier" && p.enabled !== false
     ) || [];
 
+  // Helper to check if an animation type should be rendered
+  const shouldRender = (type) => {
+    if (!renderOnly) return true;
+    return renderOnly.includes(type);
+  };
+  
   return (
     <>
       {/* Background Gradient - rendered behind factorial-noise, fades in when factorial-noise fades out */}
-      {anchorEl && (
+      {shouldRender("background") && normalizedAnchorEls.map((ae, index) => (
         <MemoizedBetSpotBackgroundGradient
-          anchorEl={anchorEl}
+          key={`bg-${index}`}
+          anchorEl={ae.element}
           pathConfig={{}}
           isPlaying={isPlaying}
           globalConfig={config}
         />
-      )}
+      ))}
+      
       {/* Factorial Noise - first layer, rendered below all other animations */}
-      {anchorEl &&
+      {shouldRender("factorial-noise") && normalizedAnchorEls.map((ae, betspotIndex) =>
         factorialNoisePaths.map((pathConfig) => (
           <MemoizedFactorialNoiseWebGL
-            key={pathConfig.id}
-            anchorEl={anchorEl}
+            key={`factorial-${betspotIndex}-${pathConfig.id}`}
+            anchorEl={ae.element}
             pathConfig={pathConfig}
             isPlaying={isPlaying}
             globalConfig={config}
           />
-        ))}
+        ))
+      )}
+      
       {/* Black Hole Animations - rendered on top of factorial-noise */}
-      {anchorEl &&
+      {shouldRender("black-hole") && normalizedAnchorEls.map((ae, betspotIndex) =>
         blackHolePaths.map((pathConfig) => (
           <MemoizedBlackHoleWebGL
-            key={pathConfig.id}
-            anchorEl={anchorEl}
+            key={`blackhole-${betspotIndex}-${pathConfig.id}`}
+            anchorEl={ae.element}
             pathConfig={pathConfig}
             isPlaying={isPlaying}
             globalConfig={config}
           />
-        ))}
+        ))
+      )}
+      
       {/* SVG Animations - rendered inside betspot container for correct positioning */}
-      {anchorEl &&
+      {shouldRender("svg") && normalizedAnchorEls.map((ae, betspotIndex) =>
         svgPaths.map((pathConfig) => (
           <MemoizedSvgAnimationWebGL
-            key={pathConfig.id}
-            anchorEl={anchorEl}
+            key={`svg-${betspotIndex}-${pathConfig.id}`}
+            anchorEl={ae.element}
             pathConfig={pathConfig}
             isPlaying={isPlaying}
             globalConfig={config}
           />
-        ))}
+        ))
+      )}
+      
       {/* Multiplier Animations - rendered inside betspot container for correct positioning */}
-      {anchorEl &&
+      {shouldRender("multiplier") && normalizedAnchorEls.map((ae, betspotIndex) =>
         multiplierPaths.map((pathConfig) => (
           <MemoizedMultiplierWebGL
-            key={pathConfig.id}
-            anchorEl={anchorEl}
+            key={`multiplier-${betspotIndex}-${pathConfig.id}`}
+            anchorEl={ae.element}
             pathConfig={pathConfig}
             isPlaying={isPlaying}
             globalConfig={config}
           />
-        ))}
+        ))
+      )}
 
-      {/* Circle Spark Animations */}
-      {anchorEl &&
-        circleSparkPaths.map((pathConfig) => (
-          <MemoizedCircleSparkWebGL
-            key={pathConfig.id}
-            anchorEl={anchorEl}
-            anchorEls={anchorEls}
-            pathConfig={pathConfig}
-            isPlaying={isPlaying}
-            globalConfig={config}
-          />
-        ))}
+      {/* Circle Spark Animations - supports multiple anchorEls with delays */}
+      {shouldRender("circle-spark") && circleSparkPaths.map((pathConfig) => (
+        <MemoizedCircleSparkWebGL
+          key={pathConfig.id}
+          anchorEl={firstAnchorEl} // Legacy fallback
+          anchorEls={normalizedAnchorEls} // Array with delays
+          pathConfig={pathConfig}
+          isPlaying={isPlaying}
+          globalConfig={config}
+        />
+      ))}
 
-      {/* Spark Spin Animations */}
-      {anchorEl &&
-        sparkSpinPaths.map((pathConfig) => (
-          <MemoizedSparkSpinWebGL
-            key={pathConfig.id}
-            anchorEl={anchorEl}
-            anchorEls={anchorEls}
-            pathConfig={pathConfig}
-            isPlaying={isPlaying}
-            globalConfig={config}
-          />
-        ))}
+      {/* Spark Spin Animations - supports multiple anchorEls with delays */}
+      {shouldRender("spark-spin") && sparkSpinPaths.map((pathConfig) => (
+        <MemoizedSparkSpinWebGL
+          key={pathConfig.id}
+          anchorEl={firstAnchorEl} // Legacy fallback
+          anchorEls={normalizedAnchorEls} // Array with delays
+          pathConfig={pathConfig}
+          isPlaying={isPlaying}
+          globalConfig={config}
+        />
+      ))}
     </>
   );
 }

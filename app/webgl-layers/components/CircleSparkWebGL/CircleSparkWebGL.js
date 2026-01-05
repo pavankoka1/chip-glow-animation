@@ -24,6 +24,9 @@ export default function CircleSparkWebGL({
   const spark1StartLoggedRef = useRef(false);
   const spark1EndLoggedRef = useRef(false);
   
+  // Store the base time when animation starts (shared across all anchorEls)
+  const animationBaseTimeRef = useRef(null);
+  
   // Normalize anchorEls: support both legacy (single anchorEl) and new (array) formats
   const normalizedAnchorEls = useRef([]);
   
@@ -37,29 +40,62 @@ export default function CircleSparkWebGL({
   useEffect(() => {
     // Convert legacy single anchorEl to array format
     if (anchorEl && !anchorEls) {
-      normalizedAnchorEls.current = [{ element: anchorEl, delay: pathConfig?.delay || 0 }];
+      // Use path delay from config
+      const pathDelay = pathConfig?.delay || 0;
+      normalizedAnchorEls.current = [{ element: anchorEl, delay: pathDelay }];
     } else if (anchorEls && Array.isArray(anchorEls)) {
       // New format: array of { element, delay? }
-      normalizedAnchorEls.current = anchorEls.map(ae => ({
-        element: typeof ae === 'object' && ae.element ? ae.element : ae,
-        delay: (typeof ae === 'object' && ae.delay !== undefined) ? ae.delay : (pathConfig?.delay || 0),
-      }));
+      // Combine betspot delay (from anchorEls) with path delay (from pathConfig)
+      const pathDelay = pathConfig?.delay || 0;
+      normalizedAnchorEls.current = anchorEls.map(ae => {
+        // Get betspot delay (delay between betspots)
+        const betspotDelay = typeof ae === 'object' && 'delay' in ae ? (ae.delay || 0) : 0;
+        // Total delay = path delay + betspot delay
+        const totalDelay = pathDelay + betspotDelay;
+        
+        // If ae is already { element, delay }, use the element and combine delays
+        if (typeof ae === 'object' && 'element' in ae) {
+          return { element: ae.element, delay: totalDelay };
+        }
+        // Otherwise, extract element
+        return {
+          element: typeof ae === 'object' && ae.element ? ae.element : ae,
+          delay: totalDelay,
+        };
+      });
     } else {
       normalizedAnchorEls.current = [];
     }
-  }, [anchorEl, anchorEls, pathConfig?.delay]);
+  }, [anchorEl, anchorEls, pathConfig?.delay, pathConfig?.id]);
 
   // Update refs when props change
   useEffect(() => {
     isPlayingRef.current = isPlaying;
     if (isPlaying) {
+      // Set base time for animation start (shared across all anchorEls)
+      animationBaseTimeRef.current = performance.now();
+      
       // Reset start time for all anchorEls when playing starts
-      normalizedAnchorEls.current.forEach((ae, index) => {
-        const key = `${ae.element?.id || index}`;
-        let refs = anchorElRefsMap.current.get(key);
-        if (refs) {
-          refs.startTimeRef.current = performance.now();
-        }
+      // Use a small delay to ensure refs are initialized
+      requestAnimationFrame(() => {
+        const baseTime = animationBaseTimeRef.current || performance.now();
+        normalizedAnchorEls.current.forEach((ae, index) => {
+          const key = `${ae.element?.id || index}`;
+          let refs = anchorElRefsMap.current.get(key);
+          
+          if (refs) {
+            // Set start time - delays will be handled in SharedWebGLContext
+            refs.startTimeRef.current = baseTime;
+          } else {
+            // If refs don't exist yet, initialize them
+            const newRefs = {
+              anchorRectRef: { current: null },
+              anchorCenterRef: { current: { x: 0, y: 0 } },
+              startTimeRef: { current: baseTime },
+            };
+            anchorElRefsMap.current.set(key, newRefs);
+          }
+        });
       });
       // Reset spark 1 tracking when animation starts
       if (pathConfig.id === 1) {
@@ -68,6 +104,7 @@ export default function CircleSparkWebGL({
       }
     } else {
       // Clear start time for all anchorEls when stopped
+      animationBaseTimeRef.current = null;
       anchorElRefsMap.current.forEach((refs) => {
         refs.startTimeRef.current = null;
       });
@@ -195,12 +232,22 @@ export default function CircleSparkWebGL({
       const thetaEndLocal = dir * Math.abs(delta || Math.PI);
       const rotAngle = startDir;
 
-      // Calculate 'a' from betspot diagonal
-      const minDimension = Math.min(rect.width, rect.height);
-      const offset = minDimension < 50 ? 6 : 10;
-      const autoA = calculateAutoA(rect, offset);
-      const a = autoA;
-      const b = merged.ellipse.b || 8.5;
+      // Use 'a' from config if provided, otherwise calculate dynamically from betspot diagonal
+      let a;
+      if (merged.ellipse?.a !== undefined && merged.ellipse?.a !== null) {
+        // Use config value if explicitly provided
+        a = merged.ellipse.a;
+      } else {
+        // Calculate dynamically (default behavior)
+        const minDimension = Math.min(rect.width, rect.height);
+        const offset = minDimension < 50 ? 6 : 10;
+        a = calculateAutoA(rect, offset);
+      }
+      
+      // Use 'b' from config if provided, otherwise use default
+      const b = merged.ellipse?.b !== undefined && merged.ellipse?.b !== null 
+        ? merged.ellipse.b 
+        : 8.5;
 
       // Find where ellipse re-enters betspot (for return journey)
       const actualThetaEnd = findEllipseBetSpotIntersection(
@@ -366,26 +413,34 @@ export default function CircleSparkWebGL({
     // Build anchorEls array with refs for registration
     const anchorElsForRegistration = normalizedAnchorEls.current.map((ae, index) => {
       const key = `${ae.element?.id || index}`;
-      const refs = anchorElRefsMap.current.get(key);
+      let refs = anchorElRefsMap.current.get(key);
       if (!refs) {
         // Initialize refs if they don't exist yet
-        const newRefs = {
+        refs = {
           anchorRectRef: { current: null },
           anchorCenterRef: { current: { x: 0, y: 0 } },
           startTimeRef: { current: null },
         };
-        anchorElRefsMap.current.set(key, newRefs);
-        return {
-          element: ae.element,
-          delay: ae.delay,
-          anchorRectRef: newRefs.anchorRectRef,
-          anchorCenterRef: newRefs.anchorCenterRef,
-          startTimeRef: newRefs.startTimeRef,
-        };
+        anchorElRefsMap.current.set(key, refs);
       }
+      
+      // Set startTime if playing (this ensures it's set during registration)
+      // Use a consistent base time for all anchorEls so delays work correctly
+      if (isPlayingRef.current && !refs.startTimeRef.current) {
+        // Use the same base time that was set in the useEffect
+        // This ensures all anchorEls have the same start time, and delays are applied correctly
+        const baseTime = animationBaseTimeRef.current || performance.now();
+        refs.startTimeRef.current = baseTime;
+      }
+      
+      // Extract delay - ensure it's a number
+      const delayValue = typeof ae === 'object' && 'delay' in ae 
+        ? (typeof ae.delay === 'number' ? ae.delay : 0)
+        : 0;
+      
       return {
         element: ae.element,
-        delay: ae.delay,
+        delay: delayValue, // Get delay from anchorEl data
         anchorRectRef: refs.anchorRectRef,
         anchorCenterRef: refs.anchorCenterRef,
         startTimeRef: refs.startTimeRef,

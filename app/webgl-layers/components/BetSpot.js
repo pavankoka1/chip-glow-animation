@@ -17,4 +17,3 @@ const BetSpot = forwardRef(function BetSpot(props, ref) {
 });
 
 export default BetSpot;
-
