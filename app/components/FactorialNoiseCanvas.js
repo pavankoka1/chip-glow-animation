@@ -1156,73 +1156,50 @@ export default function FactorialNoiseCanvas({ width = 43, height = 46 }) {
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
 
-    ctx.scale(pixelRatio, pixelRatio);
-
-    // Generate factorial noise pattern
-    const imageData = ctx.createImageData(width, height);
+    const imageData = ctx.createImageData(scaledWidth, scaledHeight);
     const data = imageData.data;
 
-    const lightColor = "#FFFF00"; // Yellow - background
-    const darkColor = "#FFA500"; // Orange - caterpillars
+    const lightRgb = hexToRgb("#FFFF00");
+    const darkRgb = hexToRgb("#FFA500");
 
-    // Fill with light background color first
-    const lightRgb = hexToRgb(lightColor);
-    const darkRgb = hexToRgb(darkColor);
+    if (!lightRgb || !darkRgb) return;
 
-    if (!lightRgb || !darkRgb) {
-      console.error("Failed to parse colors");
-      return;
-    }
-
-    // First, fill entire canvas with light background color
     for (let i = 0; i < data.length; i += 4) {
-      data[i] = lightRgb.r; // Red
-      data[i + 1] = lightRgb.g; // Green
-      data[i + 2] = lightRgb.b; // Blue
-      data[i + 3] = 255; // Alpha
+      data[i] = lightRgb.r;
+      data[i + 1] = lightRgb.g;
+      data[i + 2] = lightRgb.b;
+      data[i + 3] = 255;
     }
 
-    // Pre-calculate constants outside loops for better performance
-    const threshold = 0.65; // High threshold so only clear caterpillar areas get orange
-    const thresholdInverse = 1 - threshold; // Pre-calculate (1 - threshold)
+    const threshold = 0.65;
+    const thresholdInverse = 1 - threshold;
     const colorDiffR = darkRgb.r - lightRgb.r;
     const colorDiffG = darkRgb.g - lightRgb.g;
     const colorDiffB = darkRgb.b - lightRgb.b;
-    const widthScale = 12 / width; // Pre-calculate scaling factor
-    const heightScale = 12 / height; // Pre-calculate scaling factor
+    const widthScale = 12 / width;
+    const heightScale = 12 / height;
 
-    // Generate noise for each pixel and paint patterns on top
-    for (let y = 0; y < height; y++) {
-      const normalizedY = y * heightScale; // Pre-calculate Y outside inner loop
-      const yOffset = y * width; // Pre-calculate row offset
+    for (let y = 0; y < scaledHeight; y++) {
+      const cssY = y / pixelRatio;
+      const normalizedY = cssY * heightScale;
+      const yOffset = y * scaledWidth;
       
-      for (let x = 0; x < width; x++) {
-        // Normalize coordinates - ensure full coverage across entire betspot
-        // Use consistent scaling to cover all areas uniformly
-        // Map coordinates uniformly across the entire betspot
-        const normalizedX = x * widthScale;
-
+      for (let x = 0; x < scaledWidth; x++) {
+        const cssX = x / pixelRatio;
+        const normalizedX = cssX * widthScale;
         const noiseValue = factorialNoise(normalizedX, normalizedY);
 
-        // Yellow background, orange caterpillars
-        // Only paint orange where caterpillars are, rest stays yellow
         let blendFactor = 0;
-
         if (noiseValue > threshold) {
-          // This is a caterpillar - paint orange
           const intensity = (noiseValue - threshold) / thresholdInverse;
-          blendFactor = Math.pow(intensity, 0.6); // Smooth but clear transition to orange
-          // Clamp to valid range
-          blendFactor = blendFactor > 1 ? 1 : blendFactor;
+          blendFactor = Math.min(1, Math.pow(intensity, 0.6));
         }
 
         const index = (yOffset + x) * 4;
-        // Paint darker patterns (orange/gold) on light background (yellow)
-        // Use pre-calculated color differences for faster computation
-        data[index] = Math.round(lightRgb.r + colorDiffR * blendFactor); // Red
-        data[index + 1] = Math.round(lightRgb.g + colorDiffG * blendFactor); // Green
-        data[index + 2] = Math.round(lightRgb.b + colorDiffB * blendFactor); // Blue
-        data[index + 3] = 255; // Alpha
+        data[index] = Math.round(lightRgb.r + colorDiffR * blendFactor);
+        data[index + 1] = Math.round(lightRgb.g + colorDiffG * blendFactor);
+        data[index + 2] = Math.round(lightRgb.b + colorDiffB * blendFactor);
+        data[index + 3] = 255;
       }
     }
 
@@ -1234,6 +1211,8 @@ export default function FactorialNoiseCanvas({ width = 43, height = 46 }) {
       ref={canvasRef}
       className="absolute top-0 left-0 pointer-events-none z-20"
       style={{
+        width: `${width}px`,
+        height: `${height}px`,
         mixBlendMode: "normal",
         opacity: 1.0,
       }}
